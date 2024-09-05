@@ -2,5 +2,6 @@
  (public_name assign00)
  (name assign00)
  (libraries stdlib320)
+ (modules Assign00_01 Assign00_02)
  (wrapped false)
  (flags (:standard -nostdlib -nopervasives -open Stdlib320)))
