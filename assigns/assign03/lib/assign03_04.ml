@@ -26,3 +26,7 @@ let group l =
   in
   if not (validate_zeros l) then None
   else aux [] [] l
+
+
+  (*Sources: https://cs3110.github.io/textbook/chapters/data/pattern_matching_advanced.html used for general syntax and list construcotrs 
+  https://www2.lib.uchicago.edu/keith/ocaml-class/pattern-matching.html this one is very helpful with match expression   *)

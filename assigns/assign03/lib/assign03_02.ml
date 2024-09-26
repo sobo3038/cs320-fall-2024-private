@@ -19,3 +19,6 @@ let gen_fib l k =
   if k < len then List.nth l k
   else helper (List.rev l) len
   
+
+  (*Syntax: https://cs3110.github.io/textbook/chapters/data/lists.html i also used this one again
+  https://ocaml.org/manual/5.2/api/List.html for .rev and .nth*)
