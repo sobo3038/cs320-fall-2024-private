@@ -1,11 +1,13 @@
 let last_function_standing funcs start pred =
-  let rec lifespan f s p count =
-    if p (f s) then count
-    else lifespan f (f s) p (count + 1)
+  let rec lifespan f s p count max_steps =
+    if count >= max_steps then count 
+    else if p (f s) then count
+    else lifespan f (f s) p (count + 1) max_steps
   in
 
   let calculate_lifespans fs =
-    List.map (fun f -> (f, lifespan f start pred 0)) fs
+    let max_steps = 10000 in
+    List.map (fun f -> (f, lifespan f start pred 0 max_steps)) fs
   in
 
   let rec find_max_lifespan lifespans current_max current_func duplicates =
