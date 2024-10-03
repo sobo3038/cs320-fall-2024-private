@@ -27,3 +27,10 @@ let rec type_of e =
       (match type_of e1, type_of e2, type_of e3 with
        | Some Bool, Some t2, Some t3 when t2 = t3 -> Some t2
        | _ -> None)
+
+
+(*Sources:
+  Some https://cs3110.github.io/textbook/chapters/data/options.html 
+  and https://ocaml.org/manual/5.2/coreexamples.html#s:optional-arguments
+  https://ocaml.org/manual/5.2/letrecvalues.html let rec type of
+   *)

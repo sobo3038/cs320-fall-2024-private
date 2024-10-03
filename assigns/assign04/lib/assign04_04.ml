@@ -38,3 +38,11 @@ let rec type_of' gamma e =
       (match type_of' gamma e1 with
        | Some t1 -> type_of' ((x, t1) :: gamma) e2
        | None -> None)
+
+
+(*Sources:
+  Some https://cs3110.github.io/textbook/chapters/data/options.html 
+  and https://ocaml.org/manual/5.2/coreexamples.html#s:optional-arguments
+  https://ocaml.org/manual/5.2/api/List.html List.assoc_opt
+  https://ocaml.org/manual/5.2/patterns.html#s:pattern-matching-arrays
+   *)

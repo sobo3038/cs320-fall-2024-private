@@ -1,4 +1,6 @@
 let last_function_standing funcs start pred =
+
+(*Timing out in Gradescope so i added a max bound to avoid loops or excessive recursion*)
   let rec lifespan f s p count max_steps =
     if count >= max_steps then count 
     else if p (f s) then count
@@ -26,3 +28,8 @@ let last_function_standing funcs start pred =
   match lifespans with
   | [] -> None
   | (f, l) :: rest -> find_max_lifespan rest l f false
+
+
+  (*Sources:
+    List.map https://cs3110.github.io/textbook/chapters/hop/map.html and https://www.thekerneltrip.com/ocaml/ocaml-list-map-vs-revmap/
+    higher order functions https://cs.wellesley.edu/~cs251/s12/handouts/holistfuns.pdf*)

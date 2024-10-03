@@ -27,3 +27,9 @@ let rec eval e =
        | VBool true -> eval e2
        | VBool false -> eval e3
        | _ -> failwith "Error")
+
+
+(*Sources:
+https://ocaml.org/docs/basic-data-types
+https://ocaml.org/manual/5.2/patterns.html lots of patterns 
+ *)
