@@ -1,1 +1,4 @@
-(library (name utils))
+(library
+ (name utils)
+ (public_name interp01.utils)  ; Give it a unique public name
+ (modules utils))              ; Make sure it includes `utils.ml`
