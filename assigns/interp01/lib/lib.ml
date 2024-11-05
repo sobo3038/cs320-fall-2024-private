@@ -1,14 +1,9 @@
 open Utils
-open Parser.My_parser
 
-let parse_input s = parse s 
+(* Directly call My_parser.parse without opening the module *)
+let parse s = My_parser.parse s
 
-(* Custom gensym function without mutable state *)
-let gensym prefix counter =
-  let unique_id = counter in
-  (prefix ^ string_of_int unique_id, counter + 1)
-
-(* Helper function to convert values to expressions for substitution *)
+(* Helper function to convert a value into an expression for substitution *)
 let value_to_expr = function
   | VNum n -> Num n
   | VBool b -> if b then True else False
@@ -16,42 +11,25 @@ let value_to_expr = function
   | VFun (x, e) -> Fun (x, e)
 
 (* Substitution function: substitutes a value for a variable in an expression *)
-let rec subst v x e counter =
+let rec subst v x e =
   match e with
-  | Var y -> if y = x then (v, counter) else (Var y, counter)
+  | Var y -> if y = x then v else Var y
   | Fun (y, e') ->
-      if y = x then (Fun (y, e'), counter)
+      if y = x then Fun (y, e')
       else
-        let (y', new_counter) = gensym y counter in
-        let (e'_subst, final_counter) = subst (Var y') y e' new_counter in
-        (Fun (y', e'_subst), final_counter)
-  | App (e1, e2) ->
-      let (e1_subst, counter1) = subst v x e1 counter in
-      let (e2_subst, counter2) = subst v x e2 counter1 in
-      (App (e1_subst, e2_subst), counter2)
+        let y' = x ^ "'"
+        and e'_subst = subst v y e' in
+        Fun (y', subst (Var y') y e'_subst)
+  | App (e1, e2) -> App (subst v x e1, subst v x e2)
   | Let (y, e1, e2) ->
-      if y = x then
-        let (e1_subst, counter1) = subst v x e1 counter in
-        (Let (y, e1_subst, e2), counter1)
-      else
-        let (y', new_counter) = gensym y counter in
-        let (e1_subst, counter1) = subst v x e1 new_counter in
-        let (e2_subst, final_counter) = subst v x e2 counter1 in
-        (Let (y', e1_subst, e2_subst), final_counter)
-  | If (e1, e2, e3) ->
-      let (e1_subst, counter1) = subst v x e1 counter in
-      let (e2_subst, counter2) = subst v x e2 counter1 in
-      let (e3_subst, final_counter) = subst v x e3 counter2 in
-      (If (e1_subst, e2_subst, e3_subst), final_counter)
-  | Bop (op, e1, e2) ->
-      let (e1_subst, counter1) = subst v x e1 counter in
-      let (e2_subst, final_counter) = subst v x e2 counter1 in
-      (Bop (op, e1_subst, e2_subst), final_counter)
-  | Num _ | True | False | Unit -> (e, counter)
+      if y = x then Let (y, subst v x e1, e2)
+      else Let (y, subst v x e1, subst v x e2)
+  | If (e1, e2, e3) -> If (subst v x e1, subst v x e2, subst v x e3)
+  | Bop (op, e1, e2) -> Bop (op, subst v x e1, subst v x e2)
+  | Num _ | True | False | Unit -> e
 
 (* Evaluation function: interprets expressions based on big-step operational semantics *)
-let rec eval expr =
-  match expr with
+let rec eval = function
   | Num n -> Ok (VNum n)
   | True -> Ok (VBool true)
   | False -> Ok (VBool false)
@@ -65,15 +43,11 @@ let rec eval expr =
        | _ -> Error InvalidIfCond)
   | Let (x, e1, e2) ->
       (match eval e1 with
-       | Ok v -> 
-           let (e2_subst, _) = subst (value_to_expr v) x e2 0 in
-           eval e2_subst
+       | Ok v -> eval (subst (value_to_expr v) x e2)
        | Error e -> Error e)
   | App (e1, e2) ->
       (match eval e1, eval e2 with
-       | Ok (VFun (x, e)), Ok v -> 
-           let (e_subst, _) = subst (value_to_expr v) x e 0 in
-           eval e_subst
+       | Ok (VFun (x, e)), Ok v -> eval (subst (value_to_expr v) x e)
        | Ok _, _ -> Error InvalidApp
        | Error e, _ -> Error e)
   | Bop (op, e1, e2) ->
@@ -97,10 +71,10 @@ let rec eval expr =
       (match eval e1, eval e2 with
        | Ok v1, Ok v2 -> bin_op op v1 v2
        | Error e, _ -> Error e
-       | Ok _, Error e -> Error e)  (* New case added here *)
+       | Ok _, Error e -> Error e)
 
 (* Interpreter function: combines parsing and evaluation, handling parsing errors *)
 let interp s =
-  match parse_input s with
+  match parse s with
   | Some prog -> eval prog
   | None -> Error ParseFail

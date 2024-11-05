@@ -1,5 +1,5 @@
-%{ 
-  open Utils
+%{
+open Utils
 %}
 
 %token <int> NUM
@@ -72,7 +72,3 @@ expr_atomic: (*atomic expression*)
   | NUM                         { Num $1 }
   | VAR                         { Var $1 }
   | LPAREN expr RPAREN          { $2 }
-
-
-
-  (*syntax source: https://dev.realworldocaml.org/parsing-with-ocamllex-and-menhir.html and https://cs3110.github.io/textbook/chapters/interp/parsing.html*)

@@ -1,8 +1,7 @@
 (library
- (name parser)
- (public_name interp01.parser)
- (modules my_parser par lex)
- (libraries stdlib320 utils))
+ (name my_parser)
+ (libraries utils)  ;; Directly reference utils
+)
 
 (menhir
  (modules par))

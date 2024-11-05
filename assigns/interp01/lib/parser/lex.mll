@@ -47,9 +47,3 @@ rule read =
   | var { VAR (Lexing.lexeme lexbuf) }
   | whitespace { read lexbuf }
   | eof { EOF }
-
-
-  (*syntax source: https://dev.realworldocaml.org/parsing-with-ocamllex-and-menhir.html and https://cs3110.github.io/textbook/chapters/interp/parsing.html*)
-
-
-
