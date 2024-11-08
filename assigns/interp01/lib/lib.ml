@@ -7,27 +7,28 @@ let parse (input: string) : prog option =
   let rec subst (v: value) (x: string) (e: expr) : expr =
     match e with
     | Num n -> Num n
-    | Var y -> if x = y then 
-                 (match v with
-                  | VNum n -> Num n
-                  | VBool b -> if b then True else False
-                  | VUnit -> Unit
-                  | VFun (param, body) -> Fun (param, body))
-               else Var y
+    | Var y -> 
+        if x = y then 
+          (match v with
+           | VNum n -> Num n
+           | VBool b -> if b then True else False
+           | VUnit -> Unit
+           | VFun (param, body) -> Fun (param, body))
+        else 
+          Var y
     | Unit -> Unit
     | True -> True
     | False -> False
     | If (e1, e2, e3) -> If (subst v x e1, subst v x e2, subst v x e3)
     | Let (y, e1, e2) ->
-        if x = y then
-          Let (y, subst v x e1, e2)
-        else
-          Let (y, subst v x e1, subst v x e2)
+        Let (y, subst v x e1, if x = y then e2 else subst v x e2)
+  
     | Fun (param, body) ->
-        if x = param then
+        if x = param then 
           Fun (param, body)
-        else
+        else 
           Fun (param, subst v x body)
+    
     | App (e1, e2) -> App (subst v x e1, subst v x e2)
     | Bop (op, e1, e2) -> Bop (op, subst v x e1, subst v x e2)
   
