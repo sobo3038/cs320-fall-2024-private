@@ -1,36 +1,47 @@
 open Utils
 
+
 let parse (input: string) : prog option =
   My_parser.parse input
 
+let rec replace_var new_name old_name expr =
+  match expr with
+  | Var y -> if y = old_name then Var new_name else Var y
+  | App (e1, e2) -> App (replace_var new_name old_name e1, replace_var new_name old_name e2)
+  | Fun (param, body) -> if param = old_name then Fun (param, body) else Fun (param, replace_var new_name old_name body)
+  | Let (y, e1, e2) -> Let (y, replace_var new_name old_name e1, replace_var new_name old_name e2)
+  | If (e1, e2, e3) -> If (replace_var new_name old_name e1, replace_var new_name old_name e2, replace_var new_name old_name e3)
+  | Bop (op, e1, e2) -> Bop (op, replace_var new_name old_name e1, replace_var new_name old_name e2)
+  | _ -> expr  (* Return unchanged for base expressions like Num, Unit, True, False *)
 
   let rec subst (v: value) (x: string) (e: expr) : expr =
     match e with
     | Num n -> Num n
-    | Var y -> 
-        if x = y then 
-          (match v with
-           | VNum n -> Num n
-           | VBool b -> if b then True else False
-           | VUnit -> Unit
-           | VFun (param, body) -> Fun (param, body))
-        else 
-          Var y
+    | Var y -> if x = y then (match v with
+                               | VNum n -> Num n
+                               | VBool b -> if b then True else False
+                               | VUnit -> Unit
+                               | VFun (param, body) -> Fun (param, body))
+               else Var y
     | Unit -> Unit
     | True -> True
     | False -> False
     | If (e1, e2, e3) -> If (subst v x e1, subst v x e2, subst v x e3)
     | Let (y, e1, e2) ->
-        Let (y, subst v x e1, if x = y then e2 else subst v x e2)
-  
+        if x = y then 
+          Let (y, subst v x e1, e2) 
+        else
+          let new_var = gensym () in
+          Let (new_var, subst v x e1, subst v x (replace_var new_var y e2))
     | Fun (param, body) ->
         if x = param then 
           Fun (param, body)
-        else 
-          Fun (param, subst v x body)
-    
+        else
+          let new_var = gensym () in
+          Fun (new_var, subst v x (replace_var new_var param body))
     | App (e1, e2) -> App (subst v x e1, subst v x e2)
     | Bop (op, e1, e2) -> Bop (op, subst v x e1, subst v x e2)
+
   
 
   let rec eval (e: expr) : (value, error) result =
