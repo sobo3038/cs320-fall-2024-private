@@ -2,15 +2,19 @@
 open Utils
 %}
 
+%{
+open Utils
+%}
+
 %token <int> NUM
 %token <string> VAR
 %token EOF
 
-(* own code added tokens *)
+(* Own code added tokens *)
 %token IF THEN ELSE
 %token LET IN
 %token FUN ARROW
-%token REC          (* NEW: Define REC token *)
+%token REC          (* Define REC token *)
 %token MOD
 %token TRUE FALSE UNIT
 %token LPAREN RPAREN
@@ -18,7 +22,7 @@ open Utils
 %token LT LTE GT GTE EQ NEQ
 %token AND OR
 
-%start <Utils.prog> prog
+%start <Utils.expr> prog  (* Change start rule type to expr *)
 
 %%
 
