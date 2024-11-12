@@ -1,5 +1,8 @@
 open Utils
 
+(* Fixed-point combinator for recursion *)
+let rec fixed_point f = f (fixed_point f)
+
 let parse (input: string) : prog option =
   My_parser.parse input
 
@@ -54,16 +57,13 @@ let rec eval (e: expr) : (value, error) result =
        | Ok (VBool false) -> eval e3
        | _ -> Error InvalidIfCond)
   | Let (x, e1, e2) ->
-      (* Check for `rec` flag (extra credit) *)
-      (match e1 with
-       | Fun (param, body) ->
-           (* Handle recursive function definition *)
-           let rec_value = VFun (param, subst (VFun (param, body)) x body) in
-           eval (subst rec_value x e2)
-       | _ ->  (* Standard non-recursive `let` evaluation *)
-           (match eval e1 with
-            | Ok v1 -> eval (subst v1 x e2)
-            | Error e -> Error e))
+      (match eval e1 with
+       | Ok (VFun (param, body)) ->
+           (* Detecting and handling recursion by applying the fixed-point combinator *)
+           let rec_v = VFun (param, fixed_point (fun f -> subst (VFun (param, f)) x body)) in
+           eval (subst rec_v x e2)
+       | Ok v1 -> eval (subst v1 x e2)
+       | Error e -> Error e)
   | Fun (param, body) -> Ok (VFun (param, body))
   | App (e1, e2) ->
       (match eval e1 with
