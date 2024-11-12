@@ -2,10 +2,6 @@
 open Utils
 %}
 
-%{
-open Utils
-%}
-
 %token <int> NUM
 %token <string> VAR
 %token EOF
@@ -30,10 +26,10 @@ prog:
     expr EOF { $1 }
 
 expr:
-    IF expr THEN expr ELSE expr { If ($2, $4, $6) }      (* if *)
-  | LET VAR EQ expr IN expr     { Let ($2, $4, $6) }     (* let *)
-  | LET REC VAR EQ expr IN expr { LetRec ($3, $5, $7) }  (* NEW: let rec *)
-  | FUN VAR ARROW expr          { Fun ($2, $4) }         (* fun *)
+    IF expr THEN expr ELSE expr { If ($2, $4, $6) }
+  | LET VAR EQ expr IN expr     { Let ($2, $4, $6) }
+  | LET REC VAR EQ expr IN expr { LetRec ($3, $5, $7) }  (* LetRec now part of expr *)
+  | FUN VAR ARROW expr          { Fun ($2, $4) }
   | expr_or                     { $1 }
 
 expr_or: (* or *)
@@ -49,29 +45,29 @@ expr_rel: (* relational expression *)
   | expr_add                    { $1 }
 
 relop:
-    LT  { Lt }         (* less than *)
-  | LTE { Lte }        (* less than or equal *)
-  | GT  { Gt }         (* greater than *)
-  | GTE { Gte }        (* greater than or equal *)
-  | EQ  { Eq }         (* equal *)
-  | NEQ { Neq }        (* not equal *)
+    LT  { Lt }
+  | LTE { Lte }
+  | GT  { Gt }
+  | GTE { Gte }
+  | EQ  { Eq }
+  | NEQ { Neq }
 
 expr_add: 
-    expr_add PLUS expr_mul      { Bop (Add, $1, $3) }       (* add *)
-  | expr_add MINUS expr_mul     { Bop (Sub, $1, $3) }       (* subtraction *)
+    expr_add PLUS expr_mul      { Bop (Add, $1, $3) }
+  | expr_add MINUS expr_mul     { Bop (Sub, $1, $3) }
   | expr_mul                    { $1 }
 
 expr_mul:
-    expr_mul TIMES expr_app     { Bop (Mul, $1, $3) }       (* multiplication *) 
-  | expr_mul DIV expr_app       { Bop (Div, $1, $3) }       (* division *)
-  | expr_mul MOD expr_app       { Bop (Mod, $1, $3) }       (* modulus *)
+    expr_mul TIMES expr_app     { Bop (Mul, $1, $3) }
+  | expr_mul DIV expr_app       { Bop (Div, $1, $3) }
+  | expr_mul MOD expr_app       { Bop (Mod, $1, $3) }
   | expr_app                    { $1 }
 
-expr_app: (* function application expressions *)
+expr_app:
     expr_app expr_atomic        { App ($1, $2) }
   | expr_atomic                 { $1 }
 
-expr_atomic: (* atomic expression *)
+expr_atomic:
     UNIT                        { Unit }
   | TRUE                        { True }
   | FALSE                       { False }
