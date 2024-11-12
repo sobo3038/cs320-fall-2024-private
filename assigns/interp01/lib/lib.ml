@@ -4,17 +4,17 @@ open Utils
 let parse (input: string) : prog option =
   My_parser.parse input
 
-let rec replace_var new_name old_name expr =
-  match expr with
-  | Var y -> if y = old_name then Var new_name else Var y
-  | App (e1, e2) -> App (replace_var new_name old_name e1, replace_var new_name old_name e2)
-  | Fun (param, body) -> if param = old_name then Fun (param, body) else Fun (param, replace_var new_name old_name body)
-  | Let (y, e1, e2) -> Let (y, replace_var new_name old_name e1, replace_var new_name old_name e2)
-  | If (e1, e2, e3) -> If (replace_var new_name old_name e1, replace_var new_name old_name e2, replace_var new_name old_name e3)
-  | Bop (op, e1, e2) -> Bop (op, replace_var new_name old_name e1, replace_var new_name old_name e2)
-  | _ -> expr  (* Return unchanged for base expressions like Num, Unit, True, False *)
-
   let rec subst (v: value) (x: string) (e: expr) : expr =
+    let rec replace_var new_name old_name expr =
+      match expr with
+      | Var y -> if y = old_name then Var new_name else Var y
+      | App (e1, e2) -> App (replace_var new_name old_name e1, replace_var new_name old_name e2)
+      | Fun (param, body) -> if param = old_name then Fun (param, body) else Fun (param, replace_var new_name old_name body)
+      | Let (y, e1, e2) -> Let (y, replace_var new_name old_name e1, replace_var new_name old_name e2)
+      | If (e1, e2, e3) -> If (replace_var new_name old_name e1, replace_var new_name old_name e2, replace_var new_name old_name e3)
+      | Bop (op, e1, e2) -> Bop (op, replace_var new_name old_name e1, replace_var new_name old_name e2)
+      | _ -> expr 
+    in
     match e with
     | Num n -> Num n
     | Var y -> if x = y then (match v with
@@ -41,6 +41,7 @@ let rec replace_var new_name old_name expr =
           Fun (new_var, subst v x (replace_var new_var param body))
     | App (e1, e2) -> App (subst v x e1, subst v x e2)
     | Bop (op, e1, e2) -> Bop (op, subst v x e1, subst v x e2)
+  
 
   
 
