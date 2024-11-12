@@ -9,25 +9,26 @@ let var = ['a'-'z' '_'] ['a'-'z' 'A'-'Z' '0'-'9' '_' '\'']*
 rule read =
   parse
   | num { NUM (int_of_string (Lexing.lexeme lexbuf)) }
-
-  (*own code for operators, keywords/terms, etc.*)
-  (*keywords*)
+  
+  (* own code for operators, keywords/terms, etc. *)
+  (* keywords *)
   | "if" { IF }
   | "then" { THEN }
   | "else" { ELSE }
   | "let" { LET }
   | "in" { IN }
   | "fun" { FUN }
-  (*bool*)
+  | "rec" { REC } (* NEW: Add "rec" keyword *)
+  (* bool *)
   | "true" { TRUE }
   | "false" { FALSE }
-  (*bool*)
+  (* unit *)
   | "()" { UNIT }
-  (*symbol*)
+  (* symbols *)
   | "->" { ARROW }
   | "(" { LPAREN }
   | ")" { RPAREN }
-  (*operators*)
+  (* operators *)
   | "mod" { MOD }
   | "+" { PLUS }
   | "-" { MINUS }
@@ -39,11 +40,11 @@ rule read =
   | ">" { GT }
   | "=" { EQ }
   | "<>" { NEQ }
-  (*logic stuff*)
+  (* logical operators *)
   | "&&" { AND }
   | "||" { OR }
 
-  (*given:*)
+  (* given *)
   | var { VAR (Lexing.lexeme lexbuf) }
   | whitespace { read lexbuf }
   | eof { EOF }

@@ -1,22 +1,11 @@
 open Utils
 
-(* Fixed-point combinator for recursion *)
-let rec fixed_point f = f (fixed_point f)
-
+(* Parsing function *)
 let parse (input: string) : prog option =
   My_parser.parse input
 
+(* Substitution function with LetRec case handled *)
 let rec subst (v: value) (x: string) (e: expr) : expr =
-  let rec replace_var new_name old_name expr =
-    match expr with
-    | Var y -> if y = old_name then Var new_name else Var y
-    | App (e1, e2) -> App (replace_var new_name old_name e1, replace_var new_name old_name e2)
-    | Fun (param, body) -> if param = old_name then Fun (param, body) else Fun (param, replace_var new_name old_name body)
-    | Let (y, e1, e2) -> Let (y, replace_var new_name old_name e1, replace_var new_name old_name e2)
-    | If (e1, e2, e3) -> If (replace_var new_name old_name e1, replace_var new_name old_name e2, replace_var new_name old_name e3)
-    | Bop (op, e1, e2) -> Bop (op, replace_var new_name old_name e1, replace_var new_name old_name e2)
-    | _ -> expr 
-  in
   match e with
   | Num n -> Num n
   | Var y -> if x = y then (match v with
@@ -33,17 +22,21 @@ let rec subst (v: value) (x: string) (e: expr) : expr =
       if x = y then 
         Let (y, subst v x e1, e2) 
       else
-        let new_var = gensym () in
-        Let (new_var, subst v x e1, subst v x (replace_var new_var y e2))
+        Let (y, subst v x e1, subst v x e2)
+  | LetRec (f, e1, e2) -> 
+      if x = f then 
+        LetRec (f, e1, e2)
+      else
+        LetRec (f, subst v x e1, subst v x e2)
   | Fun (param, body) ->
       if x = param then 
         Fun (param, body)
       else
-        let new_var = gensym () in
-        Fun (new_var, subst v x (replace_var new_var param body))
+        Fun (param, subst v x body)
   | App (e1, e2) -> App (subst v x e1, subst v x e2)
   | Bop (op, e1, e2) -> Bop (op, subst v x e1, subst v x e2)
 
+(* Evaluation function *)
 let rec eval (e: expr) : (value, error) result =
   match e with
   | Num n -> Ok (VNum n)
@@ -58,12 +51,11 @@ let rec eval (e: expr) : (value, error) result =
        | _ -> Error InvalidIfCond)
   | Let (x, e1, e2) ->
       (match eval e1 with
-       | Ok (VFun (param, body)) ->
-           (* Detecting and handling recursion by applying the fixed-point combinator *)
-           let rec_v = VFun (param, fixed_point (fun f -> subst (VFun (param, f)) x body)) in
-           eval (subst rec_v x e2)
        | Ok v1 -> eval (subst v1 x e2)
        | Error e -> Error e)
+  | LetRec (f, e1, e2) ->
+      let rec_val = VFun (f, Fun (f, e1)) in
+      eval (subst rec_val f e2)
   | Fun (param, body) -> Ok (VFun (param, body))
   | App (e1, e2) ->
       (match eval e1 with
@@ -75,16 +67,17 @@ let rec eval (e: expr) : (value, error) result =
        | Error e -> Error e)
   | Bop (op, e1, e2) -> eval_bop op e1 e2
 
+(* Evaluate binary operations *)
 and eval_bop op e1 e2 =
   match op with
   | And ->
       (match eval e1 with
-       | Ok (VBool false) -> Ok (VBool false)  
+       | Ok (VBool false) -> Ok (VBool false)
        | Ok (VBool true) -> eval e2
        | _ -> Error (InvalidArgs op))
   | Or ->
       (match eval e1 with
-       | Ok (VBool true) -> Ok (VBool true)    
+       | Ok (VBool true) -> Ok (VBool true)
        | Ok (VBool false) -> eval e2
        | _ -> Error (InvalidArgs op))
   | _ ->
@@ -110,6 +103,7 @@ and eval_bop op e1 e2 =
            | _ -> Error (InvalidArgs op))
       | _ -> Error (InvalidArgs op)
 
+(* Interpreter function *)
 let interp (input: string) : (value, error) result =
   match parse input with
   | Some prog -> eval prog
