@@ -3,7 +3,7 @@ type bop =
   | Lt | Lte | Gt | Gte | Eq | Neq
   | And | Or
 
-  type expr =
+type expr =
   | Num of int
   | Var of string
   | Unit | True | False
@@ -11,9 +11,7 @@ type bop =
   | Bop of bop * expr * expr
   | If of expr * expr * expr
   | Let of string * expr * expr
-  | LetRec of string * expr * expr  (* Recursive let expression *)
   | Fun of string * expr
-
 
 type prog = expr
 
