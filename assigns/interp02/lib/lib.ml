@@ -5,45 +5,52 @@ let parse (input: string) : prog option =
   
 (* Desugar a program into an expression *)
 let desugar (p : prog) : expr =
- let rec desugar_toplets (toplets : toplet list) : expr =
-   match toplets with
-   | [] -> Unit
-   | { is_rec; name; args; ty; value } :: rest ->
-       let desugared_value =
-         List.fold_right
-           (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
-           args
-           (desugar_sfexpr value)
-       in
-       let desugared_rest = desugar_toplets rest in
-       Let { is_rec; name; ty; value = desugared_value; body = desugared_rest }
- and desugar_sfexpr (e : sfexpr) : expr =
-   match e with
-   | SUnit -> Unit
-   | STrue -> True
-   | SFalse -> False
-   | SNum n -> Num n
-   | SVar x -> Var x
-   | SFun { arg; args; body } ->
-       List.fold_right
-         (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
-         ((fst arg, snd arg) :: args)
-         (desugar_sfexpr body)
-   | SApp (f, x) -> App (desugar_sfexpr f, desugar_sfexpr x)
-   | SLet { is_rec; name; args; ty; value; body } ->
-       let desugared_value =
-         List.fold_right
-           (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
-           args
-           (desugar_sfexpr value)
-       in
-       Let { is_rec; name; ty; value = desugared_value; body = desugar_sfexpr body }
-   | SIf (cond, then_, else_) ->
-       If (desugar_sfexpr cond, desugar_sfexpr then_, desugar_sfexpr else_)
-   | SBop (op, lhs, rhs) -> Bop (op, desugar_sfexpr lhs, desugar_sfexpr rhs)
-   | SAssert e -> Assert (desugar_sfexpr e)
- in
- desugar_toplets p
+  let rec desugar_toplets (toplets : toplet list) : expr =
+    match toplets with
+    | [] -> Unit
+    | { is_rec; name; args; ty; value } :: rest ->
+        let desugared_value =
+          match args with
+          | [] -> desugar_sfexpr value
+          | _ ->
+              List.fold_right
+                (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
+                args
+                (desugar_sfexpr value)
+        in
+        let desugared_rest = desugar_toplets rest in
+        Let { is_rec; name; ty; value = desugared_value; body = desugared_rest }
+  and desugar_sfexpr (e : sfexpr) : expr =
+    match e with
+    | SUnit -> Unit
+    | STrue -> True
+    | SFalse -> False
+    | SNum n -> Num n
+    | SVar x -> Var x
+    | SFun { arg; args; body } ->
+        List.fold_right
+          (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
+          ((fst arg, snd arg) :: args)
+          (desugar_sfexpr body)
+    | SApp (f, x) -> App (desugar_sfexpr f, desugar_sfexpr x)
+    | SLet { is_rec; name; args; ty; value; body } ->
+        let desugared_value =
+          match args with
+          | [] -> desugar_sfexpr value
+          | _ ->
+              List.fold_right
+                (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
+                args
+                (desugar_sfexpr value)
+        in
+        Let { is_rec; name; ty; value = desugared_value; body = desugar_sfexpr body }
+    | SIf (cond, then_, else_) ->
+        If (desugar_sfexpr cond, desugar_sfexpr then_, desugar_sfexpr else_)
+    | SBop (op, lhs, rhs) -> Bop (op, desugar_sfexpr lhs, desugar_sfexpr rhs)
+    | SAssert e -> Assert (desugar_sfexpr e)
+  in
+  desugar_toplets p
+
 
 
 (* Type-check an expression *)
