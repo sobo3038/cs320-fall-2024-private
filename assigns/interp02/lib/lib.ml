@@ -1,11 +1,10 @@
 open Utils
 
-(* Parse a string into a program *)
 let parse (s : string) : prog option =
   try My_parser.parse s
   with _ -> None
 
-(* Desugar a program into an expression *)
+(* Desugar *)
 let desugar (p : prog) : expr =
   let rec desugar_toplets (toplets : toplet list) : expr =
     match toplets with
@@ -47,7 +46,7 @@ let desugar (p : prog) : expr =
   in
   desugar_toplets p
 
-(* Type-check an expression *)
+(* Type-check*)
 let type_of (e : expr) : (ty, error) result =
   let rec type_check (ctx : (string * ty) list) (e : expr) : (ty, error) result =
     match e with
@@ -104,8 +103,7 @@ let type_of (e : expr) : (ty, error) result =
         | Error e -> Error e)
   in
   type_check [] e
-
-(* Evaluate an expression *)
+ 
 exception AssertFail
 exception DivByZero
 
@@ -153,7 +151,7 @@ let eval (e : expr) : value =
   in
   eval Env.empty e
 
-(* Interpreter function *)
+(* Interpreter *)
 let interp (s : string) : (value, error) result =
   match parse s with
   | None -> Error ParseErr
