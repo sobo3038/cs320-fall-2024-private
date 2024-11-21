@@ -16,6 +16,8 @@ open Utils
 %token AND OR
 %token INT BOOL
 
+
+
 %start <Utils.prog> prog
 
 %%

@@ -1,55 +1,76 @@
 open Utils
 (* Parse a string into a program *)
-let parse (input: string) : prog option =
-  My_parser.parse input
-  
+let parse (s : string) : prog option =
+ try My_parser.parse s
+ with _ -> None
+
+
 (* Desugar a program into an expression *)
-let desugar (p : prog) : expr =
-  let rec desugar_toplets (toplets : toplet list) : expr =
-    match toplets with
-    | [] -> Unit
-    | { is_rec; name; args; ty; value } :: rest ->
-        let desugared_value =
-          match args with
-          | [] -> desugar_sfexpr value
-          | _ ->
-              List.fold_right
-                (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
-                args
-                (desugar_sfexpr value)
+let desugar (prog : prog) : expr =
+  let rec desugar_toplet toplet body =
+    match toplet with
+    | { is_rec; name; args = []; ty; value } ->
+        Let { is_rec; name; ty; value = desugar_expr value; body }
+    | { is_rec; name; args; ty; value } ->
+        let curried_fun =
+          List.fold_right
+            (fun (arg_name, arg_ty) acc ->
+              Fun (arg_name, arg_ty, acc))
+            args
+            (desugar_expr value)
         in
-        let desugared_rest = desugar_toplets rest in
-        Let { is_rec; name; ty; value = desugared_value; body = desugared_rest }
-  and desugar_sfexpr (e : sfexpr) : expr =
-    match e with
+        Let { is_rec; name; ty; value = curried_fun; body }
+  and desugar_expr expr =
+    match expr with
     | SUnit -> Unit
     | STrue -> True
     | SFalse -> False
     | SNum n -> Num n
     | SVar x -> Var x
-    | SFun { arg; args; body } ->
-        List.fold_right
-          (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
-          ((fst arg, snd arg) :: args)
-          (desugar_sfexpr body)
-    | SApp (f, x) -> App (desugar_sfexpr f, desugar_sfexpr x)
-    | SLet { is_rec; name; args; ty; value; body } ->
-        let desugared_value =
-          match args with
-          | [] -> desugar_sfexpr value
-          | _ ->
-              List.fold_right
-                (fun (arg_name, arg_ty) acc -> Fun (arg_name, arg_ty, acc))
-                args
-                (desugar_sfexpr value)
-        in
-        Let { is_rec; name; ty; value = desugared_value; body = desugar_sfexpr body }
     | SIf (cond, then_, else_) ->
-        If (desugar_sfexpr cond, desugar_sfexpr then_, desugar_sfexpr else_)
-    | SBop (op, lhs, rhs) -> Bop (op, desugar_sfexpr lhs, desugar_sfexpr rhs)
-    | SAssert e -> Assert (desugar_sfexpr e)
+        If (desugar_expr cond, desugar_expr then_, desugar_expr else_)
+    | SBop (op, lhs, rhs) ->
+        Bop (op, desugar_expr lhs, desugar_expr rhs)
+    | SApp (f, arg) ->
+        App (desugar_expr f, desugar_expr arg)
+    | SLet { is_rec; name; args = []; ty; value; body } ->
+        Let
+          {
+            is_rec;
+            name;
+            ty;
+            value = desugar_expr value;
+            body = desugar_expr body;
+          }
+    | SLet { is_rec; name; args; ty; value; body } ->
+        let curried_fun =
+          List.fold_right
+            (fun (arg_name, arg_ty) acc ->
+              Fun (arg_name, arg_ty, acc))
+            args
+            (desugar_expr value)
+        in
+        Let
+          {
+            is_rec;
+            name;
+            ty;
+            value = curried_fun;
+            body = desugar_expr body;
+          }
+    | SFun { arg; args; body } ->
+        let curried_fun =
+          List.fold_right
+            (fun (arg_name, arg_ty) acc ->
+              Fun (arg_name, arg_ty, acc))
+            (arg :: args)
+            (desugar_expr body)
+        in
+        curried_fun
+    | SAssert e ->
+        Assert (desugar_expr e)
   in
-  desugar_toplets p
+  List.fold_right desugar_toplet prog Unit
 
 
 
