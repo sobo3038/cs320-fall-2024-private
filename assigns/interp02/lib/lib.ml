@@ -70,11 +70,14 @@ let type_of (e : expr) : (ty, error) result =
             | _, Error e | Error e, _ -> Error e)
         | Ok ty -> Error (IfCondTyErr ty)
         | Error e -> Error e)
+(*error here*)
     | Bop (op, lhs, rhs) -> (
         match type_check ctx lhs, type_check ctx rhs with
-        | Ok IntTy, Ok IntTy -> Ok (if op = Add || op = Sub || op = Mul || op = Div then IntTy else BoolTy)
-        | Ok l_ty, Ok r_ty when l_ty <> IntTy -> Error (OpTyErrL (op, IntTy, l_ty))
-        | Ok _, Ok r_ty -> Error (OpTyErrR (op, IntTy, r_ty))
+        | Ok IntTy, Ok IntTy -> 
+            Ok (if op = Add || op = Sub || op = Mul || op = Div || op = Mod then IntTy else BoolTy)
+        | Ok l_ty, Ok r_ty -> 
+            if l_ty <> IntTy then Error (OpTyErrL (op, IntTy, l_ty))
+            else Error (OpTyErrR (op, IntTy, r_ty))
         | Error e, _ | _, Error e -> Error e)
     | Fun (arg, arg_ty, body) -> (
         match type_check ((arg, arg_ty) :: ctx) body with
