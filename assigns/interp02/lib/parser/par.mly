@@ -8,6 +8,7 @@ open Utils
 %token LET IN REC EQ COLON
 %token IF THEN ELSE
 %token FUN ARROW
+%token ASSERT
 %token MOD
 %token TRUE FALSE UNIT
 %token LPAREN RPAREN
@@ -15,8 +16,6 @@ open Utils
 %token LT LTE GT GTE NEQ
 %token AND OR
 %token INT BOOL
-
-
 
 %start <Utils.prog> prog
 
@@ -45,11 +44,13 @@ ty:
   | LPAREN ty RPAREN                { $2 }
 
 expr:
-    IF expr THEN expr ELSE expr { SIf ($2, $4, $6) }
-  | LET VAR EQ expr IN expr     { SLet { is_rec = false; name = $2; args = []; ty = UnitTy; value = $4; body = $6 } }
-  | FUN VAR ARROW expr          { SFun { arg = ($2, UnitTy); args = []; body = $4 } }
+    LET VAR COLON ty EQ expr IN expr { SLet { is_rec = false; name = $2; args = []; ty = $4; value = $6; body = $8 } }
+  | LET REC VAR args_opt COLON ty EQ expr IN expr { SLet { is_rec = true; name = $3; args = $4; ty = $6; value = $8; body = $10 } }
+  | IF expr THEN expr ELSE expr { SIf ($2, $4, $6) }
+  | ASSERT expr                 { SAssert ($2) }
+  | FUN VAR COLON ty ARROW expr { SFun { arg = ($2, $4); args = []; body = $6 } }
   | expr_or                     { $1 }
- 
+
 expr_or:
     expr_or OR expr_and         { SBop (Or, $1, $3) }
   | expr_and                    { $1 }
