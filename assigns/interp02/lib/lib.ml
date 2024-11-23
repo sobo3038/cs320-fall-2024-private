@@ -59,7 +59,6 @@ let desugar (p : prog) : expr =
   desugar_toplets p
 
 (* Type-check an expression *)
-
 let type_of (e : expr) : (ty, error) result =
   let rec type_check (ctx : (string * ty) list) (e : expr) : (ty, error) result =
     match e with
@@ -81,28 +80,19 @@ let type_of (e : expr) : (ty, error) result =
         | Error e -> Error e)
     | Bop (op, lhs, rhs) -> (
         match type_check ctx lhs, type_check ctx rhs with
-        | Ok l_ty, Ok r_ty -> (
-            match op with
-            (* Integer operations *)
-            | Add | Sub | Mul | Div | Mod when l_ty = IntTy && r_ty = IntTy -> Ok IntTy
-            (* Comparison operations *)
-            | Lt | Lte | Gt | Gte | Eq | Neq when l_ty = IntTy && r_ty = IntTy -> Ok BoolTy
-            (* Boolean operations *)
-            | And | Or when l_ty = BoolTy && r_ty = BoolTy -> Ok BoolTy
-            (* Type errors *)
-            | _ ->
-                if l_ty <> IntTy && r_ty <> IntTy then
-                  Error (OpTyErrL (op, l_ty, r_ty))
-                else if l_ty <> IntTy then
-                  Error (OpTyErrL (op, l_ty, r_ty))
-                else
-                  Error (OpTyErrR (op, l_ty, r_ty)))
+        | Ok IntTy, Ok IntTy when op = Add || op = Sub || op = Mul || op = Div || op = Mod ->
+            Ok IntTy
+        | Ok IntTy, Ok IntTy when op = Lt || op = Lte || op = Gt || op = Gte || op = Eq || op = Neq ->
+            Ok BoolTy
+        | Ok BoolTy, Ok BoolTy when op = And || op = Or -> Ok BoolTy
+        | Ok l_ty, Ok r_ty ->
+            if l_ty <> IntTy then Error (OpTyErrL (op, IntTy, l_ty))
+            else Error (OpTyErrR (op, IntTy, r_ty))
         | Error e, _ | _, Error e -> Error e)
-    | Fun (arg, arg_ty, body) ->
-        let ctx' = (arg, arg_ty) :: ctx in
-        (match type_check ctx' body with
-         | Ok body_ty -> Ok (FunTy (arg_ty, body_ty))
-         | Error e -> Error e)
+    | Fun (arg, arg_ty, body) -> (
+        match type_check ((arg, arg_ty) :: ctx) body with
+        | Ok body_ty -> Ok (FunTy (arg_ty, body_ty))
+        | Error e -> Error e)
     | App (f, x) -> (
         match type_check ctx f with
         | Ok (FunTy (arg_ty, ret_ty)) -> (
@@ -114,10 +104,10 @@ let type_of (e : expr) : (ty, error) result =
         | Error e -> Error e)
     | Let { is_rec; name; ty; value; body } ->
         let ctx' = if is_rec then (name, ty) :: ctx else ctx in
-        (match type_check ctx value with
-         | Ok ty' when ty = ty' -> type_check ((name, ty) :: ctx') body
-         | Ok ty' -> Error (LetTyErr (ty, ty'))
-         | Error e -> Error e)
+        (match type_check ctx' value with
+        | Ok value_ty when value_ty = ty -> type_check ((name, ty) :: ctx) body
+        | Ok value_ty -> Error (LetTyErr (ty, value_ty))
+        | Error e -> Error e)
     | Assert e -> (
         match type_check ctx e with
         | Ok BoolTy -> Ok UnitTy
@@ -125,7 +115,7 @@ let type_of (e : expr) : (ty, error) result =
         | Error e -> Error e)
   in
   type_check [] e
-
+ 
 
 
 
