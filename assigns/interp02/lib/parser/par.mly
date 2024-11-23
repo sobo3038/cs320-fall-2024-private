@@ -2,9 +2,10 @@
 open Utils
 %}
 
+%token EOF
+
 %token <int> NUM
 %token <string> VAR
-%token EOF
 %token LET IN REC EQ COLON
 %token IF THEN ELSE
 %token FUN ARROW
@@ -21,32 +22,28 @@ open Utils
 
 %left OR
 %left AND
-%left EQ NEQ LT LTE GT GTE
+%left EQ NEQ
+%left LT LTE GT GTE
 %left PLUS MINUS
 %left TIMES DIV MOD
 
 %%
 
-(* A program is a sequence of toplets *)
 prog:
     toplet_list EOF { $1 }
 
-(* A list of toplets *)
 toplet_list:
     toplet toplet_list { $1 :: $2 }
   | /* empty */ { [] }
 
-(* A single top-level let statement *)
 toplet:
     LET VAR args_opt COLON ty EQ expr { { is_rec = false; name = $2; args = $3; ty = $5; value = $7 } }
   | LET REC VAR args_opt COLON ty EQ expr { { is_rec = true; name = $3; args = $4; ty = $6; value = $8 } }
 
-(* Function arguments (optional) *)
 args_opt:
     LPAREN VAR COLON ty RPAREN args_opt { ($2, $4) :: $6 }
   | /* empty */ { [] }
 
-(* Types *)
 ty:
     INT { IntTy }
   | BOOL { BoolTy }
@@ -54,7 +51,6 @@ ty:
   | ty ARROW ty { FunTy ($1, $3) }
   | LPAREN ty RPAREN { $2 }
 
-(* Expressions *)
 expr:
     LET VAR COLON ty EQ expr IN expr { SLet { is_rec = false; name = $2; args = []; ty = $4; value = $6; body = $8 } }
   | LET REC VAR args_opt COLON ty EQ expr IN expr { SLet { is_rec = true; name = $3; args = $4; ty = $6; value = $8; body = $10 } }
@@ -63,22 +59,18 @@ expr:
   | FUN VAR COLON ty ARROW expr { SFun { arg = ($2, $4); args = []; body = $6 } }
   | expr_or { $1 }
 
-(* Logical OR expressions *)
 expr_or:
     expr_or OR expr_and { SBop (Or, $1, $3) }
   | expr_and { $1 }
 
-(* Logical AND expressions *)
 expr_and:
     expr_and AND expr_cmp { SBop (And, $1, $3) }
   | expr_cmp { $1 }
 
-(* Comparison expressions *)
 expr_cmp:
-    expr_add relop expr_add { SBop ($2, $1, $3) }
+    expr_cmp relop expr_add { SBop ($2, $1, $3) }
   | expr_add { $1 }
 
-(* Relational operators *)
 relop:
     LT { Lt }
   | LTE { Lte }
@@ -87,25 +79,17 @@ relop:
   | EQ { Eq }
   | NEQ { Neq }
 
-(* Addition and subtraction expressions *)
 expr_add:
     expr_add PLUS expr_mul { SBop (Add, $1, $3) }
   | expr_add MINUS expr_mul { SBop (Sub, $1, $3) }
   | expr_mul { $1 }
 
-(* Multiplication, division, and modulus expressions *)
 expr_mul:
-    expr_mul TIMES expr_app { SBop (Mul, $1, $3) }
-  | expr_mul DIV expr_app { SBop (Div, $1, $3) }
-  | expr_mul MOD expr_app { SBop (Mod, $1, $3) }
-  | expr_app { $1 }
-
-(* Function application expressions *)
-expr_app:
-    expr_app expr_atomic { SApp ($1, $2) }
+    expr_mul TIMES expr_atomic { SBop (Mul, $1, $3) }
+  | expr_mul DIV expr_atomic { SBop (Div, $1, $3) }
+  | expr_mul MOD expr_atomic { SBop (Mod, $1, $3) }
   | expr_atomic { $1 }
 
-(* Atomic expressions *)
 expr_atomic:
     UNIT { SUnit }
   | TRUE { STrue }
