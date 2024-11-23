@@ -31,19 +31,22 @@ let run_test input expected =
   | Ok value ->
       let result = string_of_value value in
       if result = expected then
-        Printf.printf "Test Passed: Input: %s -> Result: %s\n" input result
+        Printf.printf "PASSED: Input: %s -> Result: %s\n" input result
       else
-        Printf.printf "Test Failed: Input: %s -> Expected: %s, but got: %s\n" input expected result
+        Printf.printf "          Test Failed: Input: %s -> Expected: %s, but got: %s\n" input expected result
   | Error err ->
       let error_msg = string_of_error err in
-      Printf.printf "Test Failed: Input: %s -> Error: %s\n" input error_msg
+      Printf.printf "          Test Failed: Input: %s -> Error: %s\n" input error_msg
 
+(* Test parsing function *)
+let test_parse s =
+  match My_parser.parse s with
+  | Some _ -> Printf.printf "PARSED: %s\n" s
+  | None -> Printf.printf "          Parse failed: %s\n" s
 
-
-
-      
 (* Test cases *)
 let () =
+  Printf.printf "Running interpreter tests:\n";
   let test_cases = [
     (* Parsing and evaluation tests *)
     ("let x : int = 5 in x + 1", "6");
@@ -58,4 +61,22 @@ let () =
   ] in
 
   (* Run all test cases *)
-  List.iter (fun (input, expected) -> run_test input expected) test_cases
+  List.iter (fun (input, expected) -> run_test input expected) test_cases;
+
+  Printf.printf "\nRunning parser tests:\n";
+  let parse_test_cases = [
+    "let x : int = 5 in x + 1";
+    "let rec fact (n : int) : int = if n = 0 then 1 else n * fact (n - 1) in fact 5";
+    "if true then 1 else 0";
+    "if false then 1 else 0";
+    "let _ : unit = assert (1 + 1 = 2)";
+    "let x : int = 0 in x / 0";
+    "let rec loop (x : int) : int = loop (x + 1) in loop 0";
+    "fun (x : int) -> x + 1";
+    "let f (x : int) (y : int) : int = x + y in f 3 4";
+    "1 + 2 * 3";
+    "true && false || true";
+    "let x : int = 5 in let y : int = 10 in x + y";
+  ] in
+
+  List.iter test_parse parse_test_cases
