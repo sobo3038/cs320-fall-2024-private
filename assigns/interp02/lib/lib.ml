@@ -88,37 +88,33 @@ let type_of (expr : expr) : (ty, error) result =
         (match typecheck extended_env body with
         | Ok body_ty -> Ok (FunTy (arg_ty, body_ty))
         | Error e -> Error e)
-
     | App (e1, e2) -> (
-          match typecheck env e1, typecheck env e2 with
-          | Ok (FunTy (arg_ty, ret_ty)), Ok actual_ty when arg_ty = actual_ty ->
-              Ok ret_ty
-          | Ok (FunTy (arg_ty, _)), Ok actual_ty ->
-              Error (FunArgTyErr (arg_ty, actual_ty))
-          | Ok ty, Ok _ -> Error (FunAppTyErr ty)
-          | Error e, _ | _, Error e -> Error e
-    )
-
+        match typecheck env e1 with
+        | Ok (FunTy (arg_ty, ret_ty)) -> (
+            match typecheck env e2 with
+            | Ok actual_ty when arg_ty = actual_ty -> Ok ret_ty
+            | Ok actual_ty -> Error (FunArgTyErr (arg_ty, actual_ty))
+            | Error e -> Error e)
+        | Ok ty -> Error (FunAppTyErr ty)
+        | Error e -> Error e)
     | If (cond, then_, else_) -> (
         match typecheck env cond with
         | Ok BoolTy -> (
             match typecheck env then_, typecheck env else_ with
             | Ok ty1, Ok ty2 when ty1 = ty2 -> Ok ty1
             | Ok ty1, Ok ty2 -> Error (IfTyErr (ty1, ty2))
-            | Error e, _ -> Error e
-            | _, Error e -> Error e)
+            | Error e, _ | _, Error e -> Error e)
         | Ok ty -> Error (IfCondTyErr ty)
         | Error e -> Error e)
     | Bop (op, e1, e2) -> (
         match typecheck env e1, typecheck env e2 with
-        | Ok IntTy, Ok IntTy when List.mem op [Add; Sub; Mul; Div; Mod] ->
-            Ok IntTy
-        | Ok IntTy, Ok IntTy when List.mem op [Lt; Lte; Gt; Gte; Eq; Neq] ->
-            Ok BoolTy
+        | Ok IntTy, Ok IntTy when List.mem op [Add; Sub; Mul; Div; Mod] -> Ok IntTy
+        | Ok IntTy, Ok IntTy when List.mem op [Lt; Lte; Gt; Gte; Eq; Neq] -> Ok BoolTy
         | Ok BoolTy, Ok BoolTy when List.mem op [And; Or] -> Ok BoolTy
-        | Ok l_ty, Ok r_ty ->
+        | Ok l_ty, Ok r_ty -> 
             if l_ty <> IntTy then Error (OpTyErrL (op, IntTy, l_ty))
-            else Error (OpTyErrR (op, IntTy, r_ty))
+            else if r_ty <> IntTy then Error (OpTyErrR (op, IntTy, r_ty))
+            else Error (OpTyErrR (op, IntTy, r_ty)) (* Catch-all error *)
         | Error e, _ -> Error e
         | _, Error e -> Error e)
     | Assert e -> (
@@ -128,6 +124,7 @@ let type_of (expr : expr) : (ty, error) result =
         | Error e -> Error e)
   in
   typecheck Env.empty expr
+
 
 (* Evaluation function *)
 exception DivByZero
@@ -196,6 +193,11 @@ let interp (input : string) : (value, error) result =
   | Some prog -> (
       let expr = desugar prog in
       match type_of expr with
-      | Ok _ -> Ok (eval expr)
+      | Ok _ -> (
+          try Ok (eval expr)
+          with
+          | DivByZero -> Error (LetTyErr (IntTy, UnitTy)) 
+          | AssertFail -> Error (AssertTyErr BoolTy) 
+          | _ -> Error ParseErr) 
       | Error e -> Error e)
   | None -> Error ParseErr
