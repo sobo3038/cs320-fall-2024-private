@@ -82,8 +82,8 @@ expr:
     { SIf($2, $4, $6) }
   | ASSERT expr
     { SAssert($2) }
-  | FUN parameter ARROW expr
-    { SFun { arg = $2; args = []; body = $4 } }
+  | FUN parameter parameters_opt ARROW expr
+    { SFun { arg = $2; args = $3; body = $5 } }
   | binary_expr { $1 }
 
 binary_expr:
