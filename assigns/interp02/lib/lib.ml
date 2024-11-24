@@ -193,11 +193,6 @@ let interp (input : string) : (value, error) result =
   | Some prog -> (
       let expr = desugar prog in
       match type_of expr with
-      | Ok _ -> (
-          try Ok (eval expr)
-          with
-          | DivByZero -> Error (LetTyErr (IntTy, UnitTy)) 
-          | AssertFail -> Error (AssertTyErr BoolTy) 
-          | _ -> Error ParseErr) 
+      | Ok _ -> Ok (eval expr)
       | Error e -> Error e)
   | None -> Error ParseErr
