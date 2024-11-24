@@ -107,16 +107,22 @@ let type_of (expr : expr) : (ty, error) result =
         | Ok ty -> Error (IfCondTyErr ty)
         | Error e -> Error e)
     | Bop (op, e1, e2) -> (
-        match typecheck env e1, typecheck env e2 with
-        | Ok IntTy, Ok IntTy when List.mem op [Add; Sub; Mul; Div; Mod] -> Ok IntTy
-        | Ok IntTy, Ok IntTy when List.mem op [Lt; Lte; Gt; Gte; Eq; Neq] -> Ok BoolTy
-        | Ok BoolTy, Ok BoolTy when List.mem op [And; Or] -> Ok BoolTy
-        | Ok l_ty, Ok r_ty -> 
-            if l_ty <> IntTy then Error (OpTyErrL (op, IntTy, l_ty))
-            else if r_ty <> IntTy then Error (OpTyErrR (op, IntTy, r_ty))
-            else Error (OpTyErrR (op, IntTy, r_ty)) (* Catch-all error *)
-        | Error e, _ -> Error e
-        | _, Error e -> Error e)
+        match typecheck env e1 with
+        | Error e -> Error e 
+        | Ok l_ty -> (
+            match typecheck env e2 with
+            | Error e -> Error e 
+            | Ok r_ty -> (
+                match (op, l_ty, r_ty) with
+                | (Add | Sub | Mul | Div | Mod), IntTy, IntTy -> Ok IntTy
+                | (And | Or), BoolTy, BoolTy -> Ok BoolTy
+                | (Lt | Lte | Gt | Gte | Eq | Neq), IntTy, IntTy -> Ok BoolTy
+                | (Lt | Lte | Gt | Gte | Eq | Neq), BoolTy, BoolTy -> Ok BoolTy
+                | (_, IntTy, _) -> Error (OpTyErrR (op, IntTy, r_ty))
+                | (_, _, IntTy) -> Error (OpTyErrL (op, IntTy, l_ty))
+                | (_, BoolTy, _) -> Error (OpTyErrR (op, BoolTy, r_ty))
+                | (_, _, BoolTy) -> Error (OpTyErrL (op, BoolTy, l_ty))
+                | _ -> Error (OpTyErrL (op, l_ty, r_ty)))))
     | Assert e -> (
         match typecheck env e with
         | Ok BoolTy -> Ok UnitTy
