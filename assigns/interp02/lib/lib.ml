@@ -92,7 +92,7 @@ let type_of (expr : expr) : (ty, error) result =
         match typecheck env e1 with
         | Ok (FunTy (arg_ty, ret_ty)) -> (
             match typecheck env e2 with
-            | Ok actual_ty when arg_ty = actual_ty -> Ok ret_ty
+            | Ok actual_ty when actual_ty = arg_ty -> Ok ret_ty
             | Ok actual_ty -> Error (FunArgTyErr (arg_ty, actual_ty))
             | Error e -> Error e)
         | Ok ty -> Error (FunAppTyErr ty)
@@ -100,18 +100,21 @@ let type_of (expr : expr) : (ty, error) result =
     | If (cond, then_, else_) -> (
         match typecheck env cond with
         | Ok BoolTy -> (
-            match typecheck env then_, typecheck env else_ with
-            | Ok ty1, Ok ty2 when ty1 = ty2 -> Ok ty1
-            | Ok ty1, Ok ty2 -> Error (IfTyErr (ty1, ty2))
-            | Error e, _ | _, Error e -> Error e)
+            match typecheck env then_ with
+            | Ok then_ty -> (
+                match typecheck env else_ with
+                | Ok else_ty when then_ty = else_ty -> Ok then_ty
+                | Ok else_ty -> Error (IfTyErr (then_ty, else_ty))
+                | Error e -> Error e)
+            | Error e -> Error e)
         | Ok ty -> Error (IfCondTyErr ty)
         | Error e -> Error e)
     | Bop (op, e1, e2) -> (
         match typecheck env e1 with
-        | Error e -> Error e 
+        | Error e -> Error e
         | Ok l_ty -> (
             match typecheck env e2 with
-            | Error e -> Error e 
+            | Error e -> Error e
             | Ok r_ty -> (
                 match (op, l_ty, r_ty) with
                 | (Add | Sub | Mul | Div | Mod), IntTy, IntTy -> Ok IntTy
@@ -130,6 +133,7 @@ let type_of (expr : expr) : (ty, error) result =
         | Error e -> Error e)
   in
   typecheck Env.empty expr
+
 
 
 (* Evaluation function *)
