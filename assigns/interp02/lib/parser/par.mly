@@ -5,41 +5,47 @@ open Utils
 %token <int> NUM
 %token <string> VAR
 %token EOF
-%token LET
-%token REC
-%token IN
-%token EQ
-%token COLON
-%token IF
-%token THEN
-%token ELSE
-%token FUN
-%token ARROW
-%token ASSERT
-%token ADD
-%token SUB
-%token MUL
-%token DIV
-%token MOD
-%token TRUE
-%token FALSE
-%token LPAREN
-%token RPAREN
-%token LT
-%token LTE
-%token GT
-%token GTE
-%token EQEQ
-%token NEQ
-%token AND
-%token OR
-%token INTTY
-%token BOOLTY
-%token UNITTY
-%token UNIT
+
+%token INTTY "int"
+%token BOOLTY "bool"
+%token UNITTY "unit"
+
+%token ASSERT "assert"
+%token FUN "fun"
+%token LET "let"
+%token REC "rec"
+
+%token ADD "+"
+%token MUL "*"
+%token SUB "-"
+%token DIV "/"
+%token MOD "mod"
+
+%token LT "<"
+%token LTE "<="
+%token GT ">"
+%token GTE ">="
+%token NEQ "<>"
+%token ARROW "->"
+%token LPAREN "("
+%token RPAREN ")"
+%token EQ "="
+%token AND "&&"
+%token OR "||"
+%token COLON ":"
+%token UNIT "()"
+
+%token IN "in"
+%token IF "if"
+%token THEN "then"
+%token ELSE "else"
+
+%token TRUE "true"
+%token FALSE "false"
+
 %right OR
 %right AND
-%left LT LTE GT GTE EQEQ NEQ
+%left LT LTE GT GTE EQ NEQ
 %left ADD SUB
 %left MUL DIV MOD
 
@@ -48,85 +54,71 @@ open Utils
 %%
 
 prog:
-  | declarations EOF { $1 }
+  | binding_list EOF { $1 }
 
-declarations:
-  | declaration declarations { $1 :: $2 }
-  | /* empty */ { [] }
+binding_list:
+  | single_binding binding_list { $1 :: $2 }
+  | single_binding { [$1] }
 
-declaration:
-  | LET VAR parameters_opt COLON type_spec EQ expression
-    { { is_rec = false; name = $2; args = $3; ty = $5; value = $7 } }
-  | LET REC VAR parameters_opt COLON type_spec EQ expression
-    { { is_rec = true; name = $3; args = $4; ty = $6; value = $8 } }
+single_binding:
+  | "let" VAR parameters COLON type_annotation EQ expression
+      { { is_rec = false; name = $2; args = $3; ty = $5; value = $7 } }
+  | "let" "rec" VAR parameter parameters COLON type_annotation EQ expression
+      { { is_rec = true; name = $3; args = $4 :: $5; ty = $7; value = $9 } }
 
-parameters_opt:
-  | LPAREN VAR COLON type_spec RPAREN parameters_opt { ($2, $4) :: $6 }
-  | /* empty */ { [] }
+parameters:
+  | parameter parameters { $1 :: $2 }
+  | { [] }
 
-type_spec:
+parameter:
+  | LPAREN VAR COLON type_annotation RPAREN { ($2, $4) }
+
+type_annotation:
   | INTTY { IntTy }
   | BOOLTY { BoolTy }
   | UNITTY { UnitTy }
-  | type_spec ARROW type_spec { FunTy($1, $3) }
-  | LPAREN type_spec RPAREN { $2 }
+  | type_annotation ARROW type_annotation { FunTy($1, $3) }
+  | LPAREN type_annotation RPAREN { $2 }
 
 expression:
-  | LET VAR parameters_opt COLON type_spec EQ expression IN expression
-    { SLet { is_rec = false; name = $2; args = $3; ty = $5; value = $7; body = $9 } }
-  | LET REC VAR parameters_opt COLON type_spec EQ expression IN expression
-    { SLet { is_rec = true; name = $3; args = $4; ty = $6; value = $8; body = $10 } }
-  | IF expression THEN expression ELSE expression
-    { SIf($2, $4, $6) }
-  | ASSERT expression
-    { SAssert($2) }
-  | FUN single_arg parameters ARROW expression
-    { SFun { arg = $2; args = $3; body = $5 } }
+  | "let" VAR parameters COLON type_annotation EQ expression IN expression
+      { SLet { is_rec = false; name = $2; args = $3; ty = $5; value = $7; body = $9 } }
+  | "let" "rec" VAR parameter parameters COLON type_annotation EQ expression IN expression
+      { SLet { is_rec = true; name = $3; args = $4 :: $5; ty = $7; value = $9; body = $11 } }
+  | "if" expression THEN expression ELSE expression
+      { SIf($2, $4, $6) }
+  | "fun" parameter parameters ARROW expression
+      { SFun { arg = $2; args = $3; body = $5 } }
   | binary_expression { $1 }
 
-single_arg:
-  | LPAREN VAR COLON type_spec RPAREN { ($2, $4) }
-
-parameters:
-  | single_arg parameters { $1 :: $2 }
-  | /* empty */ { [] }
-
-binary_expression:
-  | binary_expression OR logical_expression { SBop(Or, $1, $3) }
-  | logical_expression { $1 }
-
-logical_expression:
-  | logical_expression AND comparison_expression { SBop(And, $1, $3) }
-  | comparison_expression { $1 }
-
-comparison_expression:
-  | comparison_expression comparison_operator additive_expression
-    { SBop($2, $1, $3) }
-  | additive_expression { $1 }
-
-comparison_operator:
+%inline binary_op:
+  | ADD { Add }
+  | SUB { Sub }
+  | MUL { Mul }
+  | DIV { Div }
+  | MOD { Mod }
   | LT { Lt }
   | LTE { Lte }
   | GT { Gt }
   | GTE { Gte }
-  | EQEQ { Eq }
+  | EQ { Eq }
   | NEQ { Neq }
+  | AND { And }
+  | OR { Or }
 
-additive_expression:
-  | additive_expression ADD multiplicative_expression { SBop(Add, $1, $3) }
-  | additive_expression SUB multiplicative_expression { SBop(Sub, $1, $3) }
-  | multiplicative_expression { $1 }
+binary_expression:
+  | binary_expression binary_op binary_expression { SBop($2, $1, $3) }
+  | "assert" unary_expression { SAssert $2 }
+  | unary_expression application_arguments { List.fold_left (fun acc arg -> SApp(acc, arg)) $1 $2 }
 
-multiplicative_expression:
-  | multiplicative_expression MUL primary_expression { SBop(Mul, $1, $3) }
-  | multiplicative_expression DIV primary_expression { SBop(Div, $1, $3) }
-  | multiplicative_expression MOD primary_expression { SBop(Mod, $1, $3) }
-  | primary_expression { $1 }
+application_arguments:
+  | unary_expression application_arguments { $1 :: $2 }
+  | { [] }
 
-primary_expression:
+unary_expression:
   | UNIT { SUnit }
   | TRUE { STrue }
   | FALSE { SFalse }
-  | NUM { SNum($1) }
-  | VAR { SVar($1) }
+  | NUM { SNum $1 }
+  | VAR { SVar $1 }
   | LPAREN expression RPAREN { $2 }
