@@ -63,8 +63,6 @@ let desugar (prog : prog) : expr =
   in
   desugar_toplets prog
 
-exception DivByZero
-exception AssertFail
 (* Type-checking function *)
 let type_of (expr : expr) : (ty, error) result =
   let rec typecheck env expr =
@@ -132,6 +130,9 @@ let type_of (expr : expr) : (ty, error) result =
   typecheck Env.empty expr
 
 (* Evaluation function *)
+exception DivByZero
+exception AssertFail
+
 let eval (expr : expr) : value =
   let rec eval_expr env expr =
     match expr with
@@ -141,14 +142,13 @@ let eval (expr : expr) : value =
     | False -> VBool false
     | Var x -> Env.find x env
     | Let { is_rec; name; ty = _; value; body } ->
-        let extended_env =
+        let rec_env =
           if is_rec then
             Env.add name (VClos { name = Some name; arg = ""; body = value; env }) env
           else env
         in
-        let v = eval_expr extended_env value in
-        let env_with_v = Env.add name v extended_env in
-        eval_expr env_with_v body
+        let v = eval_expr rec_env value in
+        eval_expr (Env.add name v rec_env) body
     | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
     | App (e1, e2) -> (
         match eval_expr env e1 with
@@ -156,12 +156,12 @@ let eval (expr : expr) : value =
             let v2 = eval_expr env e2 in
             let env_with_arg = Env.add arg v2 closure_env in
             eval_expr env_with_arg body
-        | _ -> assert false)
+        | _ -> raise (Invalid_argument "Expected function"))
     | If (cond, then_, else_) -> (
         match eval_expr env cond with
         | VBool true -> eval_expr env then_
         | VBool false -> eval_expr env else_
-        | _ -> assert false)
+        | _ -> raise (Invalid_argument "Expected boolean"))
     | Bop (op, e1, e2) ->
         let v1 = eval_expr env e1 in
         let v2 = eval_expr env e2 in
@@ -181,13 +181,14 @@ let eval (expr : expr) : value =
         | VNum n1, VNum n2, Neq -> VBool (n1 <> n2)
         | VBool b1, VBool b2, And -> VBool (b1 && b2)
         | VBool b1, VBool b2, Or -> VBool (b1 || b2)
-        | _ -> assert false)
+        | _ -> raise (Invalid_argument "Operator type mismatch"))
     | Assert e -> (
         match eval_expr env e with
         | VBool true -> VUnit
         | _ -> raise AssertFail)
   in
   eval_expr Env.empty expr
+
 
 (* Interpreter function *)
 let interp (input : string) : (value, error) result =
