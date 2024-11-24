@@ -20,12 +20,12 @@ rule read =
  | "true"     { TRUE }
  | "false"    { FALSE }
  | "()"       { UNIT }
- | "int"      { INT }
- | "bool"     { BOOL }
- | "unit"     { UNIT }
- | "+"        { PLUS }
- | "-"        { MINUS }
- | "*"        { TIMES }
+ | "int"      { INTTY }
+ | "bool"     { BOOLTY }
+ | "unit"     { UNITTY }
+ | "+"        { ADD }
+ | "-"        { SUB }
+ | "*"        { MUL }
  | "/"        { DIV }
  | "mod"      { MOD }
  | "<"        { LT }
