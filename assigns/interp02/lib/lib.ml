@@ -3,53 +3,55 @@ open Utils
 (* Parse function *)
 let parse = My_parser.parse
 
+(* Helper functions for desugar *)
+let rec fun_ty args ty =
+  match args with
+  | [] -> ty
+  | (_, arg_ty) :: xs -> FunTy (arg_ty, fun_ty xs ty)
+
+let rec desugar_args args body =
+  match args with
+  | [] -> body
+  | (x, ty) :: xs -> Fun (x, ty, desugar_args xs body)
+
 (* Desugar function *)
 let desugar (prog : prog) : expr =
-  let rec transform_fun_ty args ty =
-    match args with
-    | [] -> ty
-    | (_, arg_ty) :: remaining -> FunTy (arg_ty, transform_fun_ty remaining ty)
-  in
-  let rec create_nested_funs args body =
-    match args with
-    | [] -> body
-    | (arg_name, arg_ty) :: remaining ->
-        Fun (arg_name, arg_ty, create_nested_funs remaining body)
-  in
-  let rec desugar_expr = function
+  let rec desugar_toplets (toplets : toplet list) : expr =
+    match toplets with
+    | [] -> Unit
+    | { is_rec; name; args; ty; value } :: rest ->
+        let desugared_value = desugar_args args (desugar_expr value) in
+        Let {
+          is_rec;
+          name;
+          ty = fun_ty args ty;
+          value = desugared_value;
+          body = desugar_toplets rest;
+        }
+  and desugar_expr = function
+    | SLet { is_rec; name; args; ty; value; body } ->
+        let desugared_value = desugar_args args (desugar_expr value) in
+        Let {
+          is_rec;
+          name;
+          ty = fun_ty args ty;
+          value = desugared_value;
+          body = desugar_expr body;
+        }
+    | SFun { arg; args; body } ->
+        desugar_args (arg :: args) (desugar_expr body)
+    | SIf (cond, then_, else_) ->
+        If (desugar_expr cond, desugar_expr then_, desugar_expr else_)
+    | SApp (e1, e2) -> App (desugar_expr e1, desugar_expr e2)
+    | SBop (op, e1, e2) -> Bop (op, desugar_expr e1, desugar_expr e2)
+    | SAssert e -> Assert (desugar_expr e)
     | SUnit -> Unit
     | STrue -> True
     | SFalse -> False
     | SNum n -> Num n
     | SVar x -> Var x
-    | SFun { arg = (x, ty); args; body } ->
-        Fun (x, ty, create_nested_funs args (desugar_expr body))
-    | SApp (e1, e2) -> App (desugar_expr e1, desugar_expr e2)
-    | SLet { is_rec; name; args; ty; value; body } ->
-        Let {
-          is_rec;
-          name;
-          ty = transform_fun_ty args ty;
-          value = create_nested_funs args (desugar_expr value);
-          body = desugar_expr body;
-        }
-    | SIf (e1, e2, e3) ->
-        If (desugar_expr e1, desugar_expr e2, desugar_expr e3)
-    | SBop (op, e1, e2) -> Bop (op, desugar_expr e1, desugar_expr e2)
-    | SAssert e -> Assert (desugar_expr e)
   in
-  let rec desugar_program = function
-    | [] -> Unit
-    | { is_rec; name; args; ty; value } :: rest ->
-        Let {
-          is_rec;
-          name;
-          ty = transform_fun_ty args ty;
-          value = create_nested_funs args (desugar_expr value);
-          body = desugar_program rest;
-        }
-  in
-  desugar_program prog
+  desugar_toplets prog
 
 (* Type-checking function *)
 let type_of (expr : expr) : (ty, error) result =
@@ -126,7 +128,7 @@ let type_of (expr : expr) : (ty, error) result =
 exception DivByZero
 exception AssertFail
 
-let eval (expr : expr) : value =
+let eval (expr : expr) : value = (* Remove 'rec' *)
   let rec eval_expr env expr =
     match expr with
     | Unit -> VUnit
@@ -134,16 +136,15 @@ let eval (expr : expr) : value =
     | True -> VBool true
     | False -> VBool false
     | Var x -> Env.find x env
-    | Let { is_rec; name; ty = _; value; body } ->
-        let env' =
-          if is_rec then
-            let rec_vclos = VClos { name = Some name; arg = ""; body = value; env } in
-            Env.add name rec_vclos env
-          else env
-        in
-        let v = eval_expr env' value in
-        let env'' = Env.add name v env' in
-        eval_expr env'' body
+    | Let { is_rec; name; ty = _; value; body } -> (
+        match is_rec, value with
+        | true, Fun (arg, _, e) ->
+            let env' = Env.add name (VClos { name = Some name; arg; body = e; env }) env in
+            eval_expr (Env.add name (eval_expr env' value) env') body
+        | false, _ ->
+            let v = eval_expr env value in
+            eval_expr (Env.add name v env) body
+        | _ -> failwith "Invalid let binding")
     | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
     | App (e1, e2) -> (
         match eval_expr env e1 with
@@ -183,6 +184,7 @@ let eval (expr : expr) : value =
         | _ -> raise AssertFail)
   in
   eval_expr Env.empty expr
+
 
 (* Interpreter function *)
 let interp (input : string) : (value, error) result =
