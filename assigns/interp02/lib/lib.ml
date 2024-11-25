@@ -1,3 +1,4 @@
+
 open Utils
 
 let parse = My_parser.parse;;
@@ -69,25 +70,25 @@ let desugar prog =
           | Error e -> Error e)
       | App (e1, e2) -> (
           match typecheck env e1 with
+          | Error e -> Error e
           | Ok (FunTy (arg_ty, ret_ty)) -> (
               match typecheck env e2 with
               | Ok actual_ty when actual_ty = arg_ty -> Ok ret_ty
               | Ok actual_ty -> Error (FunArgTyErr (arg_ty, actual_ty))
               | Error e -> Error e)
-          | Ok ty -> Error (FunAppTyErr ty)
-          | Error e -> Error e)
+          | Ok ty -> Error (FunAppTyErr ty))
       | If (cond, then_, else_) -> (
           match typecheck env cond with
+          | Error e -> Error e
           | Ok BoolTy -> (
               match typecheck env then_ with
+              | Error e -> Error e
               | Ok then_ty -> (
                   match typecheck env else_ with
                   | Ok else_ty when then_ty = else_ty -> Ok then_ty
                   | Ok else_ty -> Error (IfTyErr (then_ty, else_ty))
-                  | Error e -> Error e)
-              | Error e -> Error e)
-          | Ok ty -> Error (IfCondTyErr ty)
-          | Error e -> Error e)
+                  | Error e -> Error e))
+          | _ -> Error (IfCondTyErr BoolTy))
       | Bop (op, e1, e2) -> (
           match typecheck env e1 with
           | Error e -> Error e
