@@ -112,78 +112,80 @@ let desugar prog =
           | Error e -> Error e)
     in
     typecheck Env.empty expr
+  
    
 
-  let eval expr =
-    let rec execute env = function
-      | Unit -> VUnit
-      | True -> VBool true
-      | False -> VBool false
-      | Num n -> VNum n
-      | Var x -> (
-          try Env.find x env
-          with Not_found -> failwith ("Undefined variable: " ^ x)
-        )
-      | If (cond, t_branch, f_branch) -> (
-          match execute env cond with
-          | VBool true -> execute env t_branch
-          | VBool false -> execute env f_branch
-          | _ -> failwith "Condition must evaluate to a boolean"
-        )
-      | Bop (op, left, right) ->
-          let v1 = execute env left in
-          let v2 = execute env right in
-          (match (op, v1, v2) with
-          | Add, VNum n1, VNum n2 -> VNum (n1 + n2)
-          | Sub, VNum n1, VNum n2 -> VNum (n1 - n2)
-          | Mul, VNum n1, VNum n2 -> VNum (n1 * n2)
-          | Div, VNum n1, VNum n2 -> if n2 = 0 then raise DivByZero else VNum (n1 / n2)
-          | Mod, VNum n1, VNum n2 -> if n2 = 0 then raise DivByZero else VNum (n1 mod n2)
-          | Lt, VNum n1, VNum n2 -> VBool (n1 < n2)
-          | Lte, VNum n1, VNum n2 -> VBool (n1 <= n2)
-          | Gt, VNum n1, VNum n2 -> VBool (n1 > n2)
-          | Gte, VNum n1, VNum n2 -> VBool (n1 >= n2)
-          | Eq, VNum n1, VNum n2 -> VBool (n1 = n2)
-          | Eq, VBool b1, VBool b2 -> VBool (b1 = b2)
-          | Neq, VNum n1, VNum n2 -> VBool (n1 <> n2)
-          | Neq, VBool b1, VBool b2 -> VBool (b1 <> b2)
-          | And, VBool b1, VBool b2 -> VBool (b1 && b2)
-          | Or, VBool b1, VBool b2 -> VBool (b1 || b2)
-          | _ -> failwith "Invalid binary operation"
+    let eval expr =
+      let rec execute env = function
+        | Unit -> VUnit
+        | True -> VBool true
+        | False -> VBool false
+        | Num n -> VNum n
+        | Var x -> (
+            try Env.find x env
+            with Not_found -> failwith ("Undefined variable: " ^ x)
           )
-      | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
-      | App (func, arg) -> (
-          match execute env func with
-          | VClos { name; arg = param; body; env = closure_env } ->
-              let arg_val = execute env arg in
-              let extended_env =
-                match name with
-                | Some func_name ->
-                    Env.add func_name (VClos { name; arg = param; body; env = closure_env })
-                      (Env.add param arg_val closure_env)
-                | None -> Env.add param arg_val closure_env
-              in
-              execute extended_env body
-          | _ -> failwith "Application must be to a function"
-        )
-      | Let { is_rec; name; value; body; _ } -> (
-          let value_closure =
-            match (is_rec, value) with
-            | true, Fun (arg, _, body) ->
-                VClos { name = Some name; arg; body; env }
-            | false, _ -> execute env value
-            | _ -> failwith "Invalid let binding"
-          in
-          let extended_env = Env.add name value_closure env in
-          execute extended_env body
-        )
-      | Assert e -> (
-          match execute env e with
-          | VBool true -> VUnit
-          | _ -> raise AssertFail
-        )
-    in
-    execute Env.empty expr
+        | If (cond, t_branch, f_branch) -> (
+            match execute env cond with
+            | VBool true -> execute env t_branch
+            | VBool false -> execute env f_branch
+            | _ -> failwith "Condition must evaluate to a boolean"
+          )
+        | Bop (op, left, right) ->
+            let v1 = execute env left in
+            let v2 = execute env right in
+            (match (op, v1, v2) with
+            | Add, VNum n1, VNum n2 -> VNum (n1 + n2)
+            | Sub, VNum n1, VNum n2 -> VNum (n1 - n2)
+            | Mul, VNum n1, VNum n2 -> VNum (n1 * n2)
+            | Div, VNum n1, VNum n2 -> if n2 = 0 then raise DivByZero else VNum (n1 / n2)
+            | Mod, VNum n1, VNum n2 -> if n2 = 0 then raise DivByZero else VNum (n1 mod n2)
+            | Lt, VNum n1, VNum n2 -> VBool (n1 < n2)
+            | Lte, VNum n1, VNum n2 -> VBool (n1 <= n2)
+            | Gt, VNum n1, VNum n2 -> VBool (n1 > n2)
+            | Gte, VNum n1, VNum n2 -> VBool (n1 >= n2)
+            | Eq, VNum n1, VNum n2 -> VBool (n1 = n2)
+            | Eq, VBool b1, VBool b2 -> VBool (b1 = b2)
+            | Neq, VNum n1, VNum n2 -> VBool (n1 <> n2)
+            | Neq, VBool b1, VBool b2 -> VBool (b1 <> b2)
+            | And, VBool b1, VBool b2 -> VBool (b1 && b2)
+            | Or, VBool b1, VBool b2 -> VBool (b1 || b2)
+            | _ -> failwith "Invalid binary operation"
+            )
+        | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
+        | App (func, arg) -> (
+            match execute env func with
+            | VClos { name; arg = param; body; env = closure_env } ->
+                let arg_val = execute env arg in
+                let extended_env =
+                  match name with
+                  | Some func_name ->
+                      Env.add func_name (VClos { name; arg = param; body; env = closure_env })
+                        (Env.add param arg_val closure_env)
+                  | None -> Env.add param arg_val closure_env
+                in
+                execute extended_env body
+            | _ -> failwith "Application must be to a function"
+          )
+        | Let { is_rec; name; value; body; _ } -> (
+            let value_closure =
+              match (is_rec, value) with
+              | true, Fun (arg, _, body) ->
+                  VClos { name = Some name; arg; body; env }
+              | false, _ -> execute env value
+              | _ -> failwith "Invalid let binding"
+            in
+            let extended_env = Env.add name value_closure env in
+            execute extended_env body
+          )
+        | Assert e -> (
+            match execute env e with
+            | VBool true -> VUnit
+            | _ -> raise AssertFail
+          )
+      in
+      execute Env.empty expr
+    
   
 
 let interp str =
