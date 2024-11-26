@@ -53,54 +53,63 @@ let desugar prog =
           match Env.find_opt x env with
           | Some ty -> Ok ty
           | None -> Error (UnknownVar x))
-      | Let { is_rec; name; ty = expected_ty; value; body } ->
-          let extended_env =
-            if is_rec then Env.add name expected_ty env else env
-          in
-          (match typecheck extended_env value with
+      | Let { is_rec; name; ty = expected_ty; value; body } -> (
+          let extended_env = if is_rec then Env.add name expected_ty env else env in
+          match typecheck extended_env value with
           | Error e -> Error e
-          | Ok actual_ty ->
-              if actual_ty = expected_ty then
-                typecheck (Env.add name expected_ty env) body
-              else
-                Error (LetTyErr (expected_ty, actual_ty)))
+          | Ok actual_ty when actual_ty = expected_ty -> typecheck (Env.add name expected_ty env) body
+          | Ok actual_ty -> Error (LetTyErr (expected_ty, actual_ty)))
       | Fun (arg, arg_ty, body) ->
           let extended_env = Env.add arg arg_ty env in
-          Result.map (fun body_ty -> FunTy (arg_ty, body_ty)) (typecheck extended_env body)
-      | App (e1, e2) ->
-          Result.bind (typecheck env e1) (fun t1 ->
-            match t1 with
-            | FunTy (arg_ty, ret_ty) ->
-                Result.bind (typecheck env e2) (fun t2 ->
-                  if t2 = arg_ty then Ok ret_ty
-                  else Error (FunArgTyErr (arg_ty, t2)))
-            | _ -> Error (FunAppTyErr t1))
-      | If (cond, then_, else_) ->
-          Result.bind (typecheck env cond) (fun cond_ty ->
-            if cond_ty <> BoolTy then Error (IfCondTyErr cond_ty)
-            else
-              Result.bind (typecheck env then_) (fun then_ty ->
-                Result.bind (typecheck env else_) (fun else_ty ->
-                  if then_ty = else_ty then Ok then_ty
-                  else Error (IfTyErr (then_ty, else_ty)))))
-      | Bop (op, e1, e2) ->
-          let check_op l_ty r_ty =
-            match (op, l_ty, r_ty) with
-            | (Add | Sub | Mul | Div | Mod), IntTy, IntTy -> Ok IntTy
-            | (And | Or), BoolTy, BoolTy -> Ok BoolTy
-            | (Lt | Lte | Gt | Gte | Eq | Neq), IntTy, IntTy -> Ok BoolTy
-            | (Lt | Lte | Gt | Gte | Eq | Neq), BoolTy, BoolTy -> Ok BoolTy
-            | _ -> Error (OpTyErrL (op, l_ty, r_ty))
-          in
-          Result.bind (typecheck env e1) (fun t1 ->
-            Result.bind (typecheck env e2) (fun t2 ->
-              check_op t1 t2))
-      | Assert e ->
-          Result.bind (typecheck env e) (fun t ->
-            if t = BoolTy then Ok UnitTy
-            else Error (AssertTyErr t))
+          (match typecheck extended_env body with
+          | Ok body_ty -> Ok (FunTy (arg_ty, body_ty))
+          | Error e -> Error e)
+      | App (e1, e2) -> (
+          match typecheck env e1 with
+          | Error e -> Error e
+          | Ok (FunTy (arg_ty, ret_ty)) -> (
+              match typecheck env e2 with
+              | Error e -> Error e
+              | Ok actual_ty when actual_ty = arg_ty -> Ok ret_ty
+              | Ok actual_ty -> Error (FunArgTyErr (arg_ty, actual_ty)))
+          | Ok ty -> Error (FunAppTyErr ty))
+      | If (cond, then_, else_) -> (
+          match typecheck env cond with
+          | Error e -> Error e
+          | Ok BoolTy -> (
+              match typecheck env then_ with
+              | Error e -> Error e
+              | Ok then_ty -> (
+                  match typecheck env else_ with
+                  | Error e -> Error e
+                  | Ok else_ty when then_ty = else_ty -> Ok then_ty
+                  | Ok else_ty -> Error (IfTyErr (then_ty, else_ty))))
+          | Ok ty -> Error (IfCondTyErr ty))
+      | Bop (op, e1, e2) -> (
+          match typecheck env e1 with
+          | Error e -> Error e
+          | Ok l_ty -> (
+              match typecheck env e2 with
+              | Error e -> Error e
+              | Ok r_ty -> (
+                  match (op, l_ty, r_ty) with
+                  | (Add | Sub | Mul | Div | Mod), IntTy, IntTy -> Ok IntTy
+                  | (And | Or), BoolTy, BoolTy -> Ok BoolTy
+                  | (Lt | Lte | Gt | Gte | Eq | Neq), IntTy, IntTy -> Ok BoolTy
+                  | (Lt | Lte | Gt | Gte | Eq | Neq), BoolTy, BoolTy -> Ok BoolTy
+                  | (_, IntTy, _) -> Error (OpTyErrR (op, IntTy, r_ty))
+                  | (_, _, IntTy) -> Error (OpTyErrL (op, IntTy, l_ty))
+                  | (_, BoolTy, _) -> Error (OpTyErrR (op, BoolTy, r_ty))
+                  | (_, _, BoolTy) -> Error (OpTyErrL (op, BoolTy, l_ty))
+                  | _ -> Error (OpTyErrL (op, l_ty, r_ty)))))
+      | Assert e -> (
+          match typecheck env e with
+          | Error e -> Error e
+          | Ok BoolTy -> Ok UnitTy
+          | Ok ty -> Error (AssertTyErr ty))
     in
     typecheck Env.empty expr
+  
    
 
   let eval expr =
