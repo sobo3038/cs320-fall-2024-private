@@ -46,185 +46,177 @@ let desugar prog =
 
 
 
-
-
  let type_of (expr : expr) : (ty, error) result =
   let rec typecheck env expr =
-    match expr with
-    | Unit -> Ok UnitTy
-    | Num _ -> Ok IntTy
-    | True | False -> Ok BoolTy
-    | Var x -> 
-        let ty_opt = Env.find_opt x env in
-        (match ty_opt with
-         | Some ty -> Ok ty
-         | None -> Error (UnknownVar x))
-    | Let { is_rec; name; ty = expected_ty; value; body } ->
-        let extended_env = if is_rec then Env.add name expected_ty env else env in
-        let value_ty = typecheck extended_env value in
-        (match value_ty with
-         | Ok actual_ty when actual_ty = expected_ty ->
-             let updated_env = Env.add name expected_ty extended_env in
-             typecheck updated_env body
-         | Ok actual_ty -> Error (LetTyErr (expected_ty, actual_ty))
-         | Error e -> Error e)
-    | Fun (arg, arg_ty, body) ->
-        let extended_env = Env.add arg arg_ty env in
-        let body_ty = typecheck extended_env body in
-        (match body_ty with
-         | Ok result_ty -> Ok (FunTy (arg_ty, result_ty))
-         | Error e -> Error e)
-    | App (e1, e2) ->
-        let func_ty = typecheck env e1 in
-        (match func_ty with
-         | Ok (FunTy (arg_ty, ret_ty)) ->
-             let arg_ty_check = typecheck env e2 in
-             (match arg_ty_check with
-              | Ok actual_ty when actual_ty = arg_ty -> Ok ret_ty
-              | Ok actual_ty -> Error (FunArgTyErr (arg_ty, actual_ty))
-              | Error e -> Error e)
-         | Ok ty -> Error (FunAppTyErr ty)
-         | Error e -> Error e)
-    | If (cond, then_, else_) ->
-        let cond_ty = typecheck env cond in
-        (match cond_ty with
-         | Ok BoolTy ->
-             let then_ty = typecheck env then_ in
-             (match then_ty with
-              | Ok t_ty ->
-                  let else_ty = typecheck env else_ in
-                  (match else_ty with
-                   | Ok e_ty when t_ty = e_ty -> Ok t_ty
-                   | Ok e_ty -> Error (IfTyErr (t_ty, e_ty))
-                   | Error e -> Error e)
-              | Error e -> Error e)
-         | Ok ty -> Error (IfCondTyErr ty)
-         | Error e -> Error e)
-    | Bop (op, e1, e2) ->
-        let left_ty = typecheck env e1 in
-        (match left_ty with
-         | Error e -> Error e
-         | Ok l_ty ->
-             let right_ty = typecheck env e2 in
-             (match right_ty with
+      match expr with
+      | Unit -> Ok UnitTy
+      | Num _ -> Ok IntTy
+      | True | False -> Ok BoolTy
+      | Var x -> (
+          match Env.find_opt x env with
+          | Some ty -> Ok ty
+          | None -> Error (UnknownVar x)
+      )
+      | Let { is_rec; name; ty = expected_ty; value; body } -> (
+          if is_rec then (
+              let extended_env = Env.add name expected_ty env in
+              match typecheck extended_env value with
+              | Ok actual_ty when actual_ty = expected_ty ->
+                  typecheck (Env.add name expected_ty extended_env) body
+              | Ok actual_ty -> Error (LetTyErr (expected_ty, actual_ty))
               | Error e -> Error e
-              | Ok r_ty ->
-                  (match (op, l_ty, r_ty) with
-                   | (Add | Sub | Mul | Div | Mod), IntTy, IntTy -> Ok IntTy
-                   | (And | Or), BoolTy, BoolTy -> Ok BoolTy
-                   | (Lt | Lte | Gt | Gte | Eq | Neq), IntTy, IntTy -> Ok BoolTy
-                   | (Lt | Lte | Gt | Gte | Eq | Neq), BoolTy, BoolTy -> Ok BoolTy
-                   | (_, IntTy, _) -> Error (OpTyErrR (op, IntTy, r_ty))
-                   | (_, _, IntTy) -> Error (OpTyErrL (op, IntTy, l_ty))
-                   | (_, BoolTy, _) -> Error (OpTyErrR (op, BoolTy, r_ty))
-                   | (_, _, BoolTy) -> Error (OpTyErrL (op, BoolTy, l_ty))
-                   | _ -> Error (OpTyErrL (op, l_ty, r_ty)))))
-    | Assert e ->
-        let expr_ty = typecheck env e in
-        (match expr_ty with
-         | Ok BoolTy -> Ok UnitTy
-         | Ok ty -> Error (AssertTyErr ty)
-         | Error e -> Error e)
+          ) else (
+              match typecheck env value with
+              | Ok actual_ty when actual_ty = expected_ty ->
+                  typecheck (Env.add name actual_ty env) body
+              | Ok actual_ty -> Error (LetTyErr (expected_ty, actual_ty))
+              | Error e -> Error e
+          )
+      )
+      | Fun (arg, arg_ty, body) ->
+          let extended_env = Env.add arg arg_ty env in
+          (match typecheck extended_env body with
+          | Ok body_ty -> Ok (FunTy (arg_ty, body_ty))
+          | Error e -> Error e)
+      | App (e1, e2) -> (
+          match typecheck env e1 with
+          | Ok (FunTy (arg_ty, ret_ty)) -> (
+              match typecheck env e2 with
+              | Ok actual_ty when arg_ty = actual_ty -> Ok ret_ty
+              | Ok actual_ty -> Error (FunArgTyErr (arg_ty, actual_ty))
+              | Error e -> Error e
+          )
+          | Ok ty -> Error (FunAppTyErr ty)
+          | Error e -> Error e
+      )
+      | If (cond, then_, else_) -> (
+          match typecheck env cond with
+          | Ok BoolTy -> (
+              match typecheck env then_ with
+              | Ok ty_then -> (
+                  match typecheck env else_ with
+                  | Ok ty_else when ty_then = ty_else -> Ok ty_then
+                  | Ok ty_else -> Error (IfTyErr (ty_then, ty_else))
+                  | Error e -> Error e
+              )
+              | Error e -> Error e
+          )
+          | Ok ty -> Error (IfCondTyErr ty)
+          | Error e -> Error e
+      )
+      | Bop (op, e1, e2) -> (
+          let (expected_ty1, expected_ty2, result_ty) = match op with
+          | Add | Sub | Mul | Div | Mod -> (IntTy, IntTy, IntTy)
+          | Lt | Lte | Gt | Gte | Eq | Neq -> (IntTy, IntTy, BoolTy)
+          | And | Or -> (BoolTy, BoolTy, BoolTy)
+          in
+          match typecheck env e1 with
+          | Error e -> Error e 
+          | Ok ty1 when ty1 <> expected_ty1 -> Error (OpTyErrL (op, expected_ty1, ty1))
+          | Ok _ -> (
+              match typecheck env e2 with
+              | Error e -> Error e 
+              | Ok ty2 when ty2 <> expected_ty2 -> Error (OpTyErrR (op, expected_ty2, ty2))
+              | Ok _ -> Ok result_ty 
+          )
+      )
+
+      | Assert e -> (
+          match typecheck env e with
+          | Ok BoolTy -> Ok UnitTy
+          | Ok ty -> Error (AssertTyErr ty)
+          | Error e -> Error e
+      )
   in
   typecheck Env.empty expr
 
 
 
- 
-
-
-
-
-
-
-
   let eval (expr : expr) : value =
     let rec eval_expr env expr =
-        match expr with
-        | Unit -> VUnit
-        | Num n -> VNum n
-        | True -> VBool true
-        | False -> VBool false
-        | Var x -> Env.find x env
-        | Let { is_rec; name; ty = _; value; body } ->
-            let extended_env =
-                if is_rec then
-                    let closure =
-                        match value with
-                        | Fun (arg, _, body) -> VClos { name = Some name; arg; body; env }
-                        | _ ->
-                            let gensym_arg = gensym () in
-                            let wrapped_body = Fun (gensym_arg, UnitTy, value) in
-                            VClos { name = Some name; arg = gensym_arg; body = wrapped_body; env }
-                    in
-                    Env.add name closure env
-                else
-                    let v = eval_expr env value in
-                    Env.add name v env
+      let eval_let is_rec name value body env =
+        let extended_env =
+          if is_rec then
+            let closure =
+              match value with
+              | Fun (arg, _, body) ->
+                  VClos { name = Some name; arg; body; env }
+              | _ ->
+                  let new_arg = gensym () in
+                  let wrapped = Fun (new_arg, UnitTy, value) in
+                  VClos { name = Some name; arg = new_arg; body = wrapped; env }
             in
-            eval_expr extended_env body
-        | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
-        | App (e1, e2) -> (
-            match eval_expr env e1 with
-            | VClos { name = Some fname; arg; body; env = closure_env } ->
-                let v2 = eval_expr env e2 in
-                let extended_env =
-                    Env.add fname (VClos { name = Some fname; arg; body; env = closure_env })
-                        (Env.add arg v2 closure_env)
-                in
-                eval_expr extended_env body
-            | VClos { name = None; arg; body; env = closure_env } ->
-                let v2 = eval_expr env e2 in
-                let extended_env = Env.add arg v2 closure_env in
-                eval_expr extended_env body
+            Env.add name closure env
+          else
+            let v = eval_expr env value in
+            Env.add name v env
+        in
+        eval_expr extended_env body
+      in
+      match expr with
+      | Var x -> Env.find x env
+      | Unit -> VUnit
+      | Num n -> VNum n
+      | True -> VBool true
+      | False -> VBool false
+      | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
+      | Let { is_rec; name; ty = _; value; body } -> eval_let is_rec name value body env
+      | App (e1, e2) ->
+          let func = eval_expr env e1 in
+          let arg_val = eval_expr env e2 in
+          (match func with
+          | VClos { name = Some fname; arg; body; env = closure_env } ->
+              let updated_env =
+                Env.add fname func (Env.add arg arg_val closure_env)
+              in
+              eval_expr updated_env body
+          | VClos { name = None; arg; body; env = closure_env } ->
+              eval_expr (Env.add arg arg_val closure_env) body
+          | _ -> assert false)
+      | If (cond, then_, else_) ->
+          let cond_val = eval_expr env cond in
+          (match cond_val with
+          | VBool true -> eval_expr env then_
+          | VBool false -> eval_expr env else_
+          | _ -> assert false)
+      | Assert e ->
+          (match eval_expr env e with
+          | VBool true -> VUnit
+          | VBool false -> raise AssertFail
+          | _ -> assert false)
+      | Bop (op, e1, e2) ->
+          let v1 = eval_expr env e1 in
+          let v2 = eval_expr env e2 in
+          let compute_binary_op v1 v2 op =
+            match (v1, v2, op) with
+            | VNum n1, VNum n2, Add -> VNum (n1 + n2)
+            | VNum n1, VNum n2, Sub -> VNum (n1 - n2)
+            | VNum n1, VNum n2, Mul -> VNum (n1 * n2)
+            | VNum n1, VNum n2, Div -> if n2 = 0 then raise DivByZero else VNum (n1 / n2)
+            | VNum n1, VNum n2, Mod -> if n2 = 0 then raise DivByZero else VNum (n1 mod n2)
+            | VNum n1, VNum n2, Lt -> VBool (n1 < n2)
+            | VNum n1, VNum n2, Lte -> VBool (n1 <= n2)
+            | VNum n1, VNum n2, Gt -> VBool (n1 > n2)
+            | VNum n1, VNum n2, Gte -> VBool (n1 >= n2)
+            | VNum n1, VNum n2, Eq -> VBool (n1 = n2)
+            | VNum n1, VNum n2, Neq -> VBool (n1 <> n2)
             | _ -> assert false
-        )
-        | If (cond, then_, else_) -> (
-            match eval_expr env cond with
-            | VBool true -> eval_expr env then_
-            | VBool false -> eval_expr env else_
-            | _ -> assert false 
-        )
-        | Bop (op, e1, e2) -> (
-            match op with
-            | And -> (
-                match eval_expr env e1 with
-                | VBool false -> VBool false 
-                | VBool true -> eval_expr env e2 
-                | _ -> assert false 
-            )
-            | Or -> (
-                match eval_expr env e1 with
-                | VBool true -> VBool true 
-                | VBool false -> eval_expr env e2 
-                | _ -> assert false 
-            )
-            | _ -> (
-                let v1 = eval_expr env e1 in
-                let v2 = eval_expr env e2 in
-                match (v1, v2, op) with
-                | (VNum n1, VNum n2, Add) -> VNum (n1 + n2)
-                | (VNum n1, VNum n2, Sub) -> VNum (n1 - n2)
-                | (VNum n1, VNum n2, Mul) -> VNum (n1 * n2)
-                | (VNum n1, VNum n2, Div) -> if n2 = 0 then raise DivByZero else VNum (n1 / n2)
-                | (VNum n1, VNum n2, Mod) -> if n2 = 0 then raise DivByZero else VNum (n1 mod n2)
-                | (VNum n1, VNum n2, Lt) -> VBool (n1 < n2)
-                | (VNum n1, VNum n2, Lte) -> VBool (n1 <= n2)
-                | (VNum n1, VNum n2, Gt) -> VBool (n1 > n2)
-                | (VNum n1, VNum n2, Gte) -> VBool (n1 >= n2)
-                | (VNum n1, VNum n2, Eq) -> VBool (n1 = n2)
-                | (VNum n1, VNum n2, Neq) -> VBool (n1 <> n2)
-                | _ -> assert false 
-            )
-        )
-        | Assert e -> (
-            match eval_expr env e with
-            | VBool true -> VUnit
-            | VBool false -> raise AssertFail
-            | _ -> assert false 
-        )
+          in
+          (match op with
+          | And ->
+              (match v1 with
+              | VBool false -> VBool false
+              | VBool true -> eval_expr env e2
+              | _ -> assert false)
+          | Or ->
+              (match v1 with
+              | VBool true -> VBool true
+              | VBool false -> eval_expr env e2
+              | _ -> assert false)
+          | _ -> compute_binary_op v1 v2 op)
     in
     eval_expr Env.empty expr
+  
 
 
 
