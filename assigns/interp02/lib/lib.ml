@@ -174,10 +174,6 @@ let type_of (expr : expr) : (ty, error) result =
           evaluate updated_env body
       | Fun (arg, _, body_fn) ->
           VClos { name = None; arg = arg; body = body_fn; env = env }
-
-
-
-          
       | App (function_expr, argument_expr) ->
           let func_value = evaluate env function_expr in
           let arg_value = evaluate env argument_expr in
@@ -196,15 +192,17 @@ let type_of (expr : expr) : (ty, error) result =
           handle_closure func_value
         
 
+      | If (condition, then_expr, else_expr) ->
+          let handle_condition condition_value =
+            match condition_value with
+            | VBool true -> evaluate env then_expr
+            | VBool false -> evaluate env else_expr
+            | _ -> assert false
+          in
+          handle_condition (evaluate env condition)
+        
 
           
-
-      | If (condition, then_expr, else_expr) ->
-          let eval_condition = evaluate env condition in
-          (match eval_condition with
-          | VBool true -> evaluate env then_expr
-          | VBool false -> evaluate env else_expr
-          | _ -> assert false)
       | Bop (operator, expr1, expr2) ->
           (match operator with
           | And ->
