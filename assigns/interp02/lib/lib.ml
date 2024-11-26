@@ -54,7 +54,9 @@ let desugar prog =
           | Some ty -> Ok ty
           | None -> Error (UnknownVar x))
       | Let { is_rec; name; ty = expected_ty; value; body } ->
-          let extended_env = if is_rec then Env.add name expected_ty env else env in
+          let extended_env =
+            if is_rec then Env.add name expected_ty env else env
+          in
           (match typecheck extended_env value with
           | Ok actual_ty when actual_ty = expected_ty ->
               typecheck (Env.add name expected_ty env) body
@@ -67,25 +69,25 @@ let desugar prog =
           | Error e -> Error e)
       | App (e1, e2) -> (
           match typecheck env e1 with
+          | Error e -> Error e
           | Ok (FunTy (arg_ty, ret_ty)) -> (
               match typecheck env e2 with
               | Ok actual_ty when actual_ty = arg_ty -> Ok ret_ty
               | Ok actual_ty -> Error (FunArgTyErr (arg_ty, actual_ty))
               | Error e -> Error e)
-          | Ok ty -> Error (FunAppTyErr ty)
-          | Error e -> Error e)
+          | Ok ty -> Error (FunAppTyErr ty))
       | If (cond, then_, else_) -> (
           match typecheck env cond with
+          | Error e -> Error e
           | Ok BoolTy -> (
               match typecheck env then_ with
+              | Error e -> Error e
               | Ok then_ty -> (
                   match typecheck env else_ with
                   | Ok else_ty when then_ty = else_ty -> Ok then_ty
                   | Ok else_ty -> Error (IfTyErr (then_ty, else_ty))
-                  | Error e -> Error e)
-              | Error e -> Error e)
-          | Ok ty -> Error (IfCondTyErr ty)
-          | Error e -> Error e)
+                  | Error e -> Error e))
+          | Ok ty -> Error (IfCondTyErr ty))
       | Bop (op, e1, e2) -> (
           match typecheck env e1 with
           | Error e -> Error e
@@ -99,9 +101,7 @@ let desugar prog =
                   | (Lt | Lte | Gt | Gte | Eq | Neq), IntTy, IntTy -> Ok BoolTy
                   | (Lt | Lte | Gt | Gte | Eq | Neq), BoolTy, BoolTy -> Ok BoolTy
                   | (_, IntTy, _) -> Error (OpTyErrR (op, IntTy, r_ty))
-                  | (_, _, IntTy) -> Error (OpTyErrL (op, IntTy, l_ty))
                   | (_, BoolTy, _) -> Error (OpTyErrR (op, BoolTy, r_ty))
-                  | (_, _, BoolTy) -> Error (OpTyErrL (op, BoolTy, l_ty))
                   | _ -> Error (OpTyErrL (op, l_ty, r_ty)))))
       | Assert e -> (
           match typecheck env e with
@@ -110,7 +110,6 @@ let desugar prog =
           | Error e -> Error e)
     in
     typecheck Env.empty expr
-  
    
 
   let eval expr =
