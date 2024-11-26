@@ -1,8 +1,8 @@
 open Utils
 
+
 let parse = My_parser.parse;;
-exception AssertFail
-exception DivByZero
+
 let desugar prog =
  let rec translate_toplevel = function
    | [] -> Unit
@@ -51,11 +51,8 @@ let type_of (expr : expr) : (ty, error) result =
   let rec typecheck env expr =
     match expr with
     | Unit -> Ok UnitTy
-
     | Num _ -> Ok IntTy
-
     | True | False -> Ok BoolTy
-
     | Var x ->
         (match Env.find_opt x env with
         | Some ty -> Ok ty
@@ -140,39 +137,48 @@ let type_of (expr : expr) : (ty, error) result =
   typecheck Env.empty expr
 
 
+  exception AssertFail
+  exception DivByZero
 
 
   let eval (expr : expr) : value =
-    let rec evaluate_expression environment current_expr =
+    let rec evaluate_expression env current_expr =
+      let add_to_env name value env = 
+        Env.add name value env
+      in
       match current_expr with
       | Unit -> VUnit
-      | Num number -> VNum number
+      | Num n -> VNum n
       | True -> VBool true
       | False -> VBool false
-      | Var variable -> Env.find variable environment
+      | Var variable -> Env.find variable env
       | Let { is_rec; name; ty = _; value; body } ->
-          let updated_environment =
-            if is_rec then
-              let rec_closure =
-                (match value with
-                | Fun (argument, _, function_body) ->
-                    VClos { name = Some name; arg = argument; body = function_body; env = environment }
-                | _ ->
-                    let generated_argument = gensym () in
-                    let wrapped_function = Fun (generated_argument, UnitTy, value) in
-                    VClos { name = Some name; arg = generated_argument; body = wrapped_function; env = environment })
-              in
-              Env.add name rec_closure environment
-            else
-              let evaluated_value = evaluate_expression environment value in
-              Env.add name evaluated_value environment
+          let update_environment rec_flag =
+            match rec_flag with
+            | true ->
+                let closure =
+                  (match value with
+                  | Fun (arg, _, body_fn) ->
+                      VClos { name = Some name; arg = arg; body = body_fn; env = env }
+                  | _ ->
+                      let arg_placeholder = gensym () in
+                      let wrapped_fn = Fun (arg_placeholder, UnitTy, value) in
+                      VClos { name = Some name; arg = arg_placeholder; body = wrapped_fn; env = env })
+                in
+                add_to_env name closure env
+            | false ->
+                let value_eval = evaluate_expression env value in
+                add_to_env name value_eval env
           in
-          evaluate_expression updated_environment body
-      | Fun (argument, _, function_body) ->
-          VClos { name = None; arg = argument; body = function_body; env = environment }
+          let updated_env = update_environment is_rec in
+          evaluate_expression updated_env body
+      | Fun (arg, _, body_fn) ->
+          VClos { name = None; arg = arg; body = body_fn; env = env }
+
+          
       | App (function_expr, argument_expr) ->
-          let evaluated_function = evaluate_expression environment function_expr in
-          let evaluated_argument = evaluate_expression environment argument_expr in
+          let evaluated_function = evaluate_expression env function_expr in
+          let evaluated_argument = evaluate_expression env argument_expr in
           (match evaluated_function with
           | VClos { name = Some func_name; arg; body; env = closure_environment } ->
               let extended_environment =
@@ -185,26 +191,26 @@ let type_of (expr : expr) : (ty, error) result =
               evaluate_expression extended_environment body
           | _ -> assert false)
       | If (condition, then_expr, else_expr) ->
-          let evaluated_condition = evaluate_expression environment condition in
+          let evaluated_condition = evaluate_expression env condition in
           (match evaluated_condition with
-          | VBool true -> evaluate_expression environment then_expr
-          | VBool false -> evaluate_expression environment else_expr
+          | VBool true -> evaluate_expression env then_expr
+          | VBool false -> evaluate_expression env else_expr
           | _ -> assert false)
       | Bop (operator, expr1, expr2) ->
           (match operator with
           | And ->
-              (match evaluate_expression environment expr1 with
+              (match evaluate_expression env expr1 with
               | VBool false -> VBool false
-              | VBool true -> evaluate_expression environment expr2
+              | VBool true -> evaluate_expression env expr2
               | _ -> assert false)
           | Or ->
-              (match evaluate_expression environment expr1 with
+              (match evaluate_expression env expr1 with
               | VBool true -> VBool true
-              | VBool false -> evaluate_expression environment expr2
+              | VBool false -> evaluate_expression env expr2
               | _ -> assert false)
           | _ ->
-              let value1 = evaluate_expression environment expr1 in
-              let value2 = evaluate_expression environment expr2 in
+              let value1 = evaluate_expression env expr1 in
+              let value2 = evaluate_expression env expr2 in
               (match (value1, value2, operator) with
               | (VNum num1, VNum num2, Add) -> VNum (num1 + num2)
               | (VNum num1, VNum num2, Sub) -> VNum (num1 - num2)
@@ -221,12 +227,13 @@ let type_of (expr : expr) : (ty, error) result =
               | (VNum num1, VNum num2, Neq) -> VBool (num1 <> num2)
               | _ -> assert false))
       | Assert expression ->
-          (match evaluate_expression environment expression with
+          (match evaluate_expression env expression with
           | VBool true -> VUnit
           | VBool false -> raise AssertFail
           | _ -> assert false)
     in
     evaluate_expression Env.empty expr
+  
   
   
   
@@ -239,6 +246,3 @@ let interp str =
      | Ok _ -> Ok (eval desugared)
      | Error e -> Error e)
  | None -> Error ParseErr
-
-
-
