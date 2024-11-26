@@ -143,7 +143,7 @@ let type_of (expr : expr) : (ty, error) result =
 
   let eval (expr : expr) : value =
     let rec evaluate env curr =
-      let add_to_env name value env = 
+      let add_to_env name value env =
         Env.add name value env
       in
       match curr with
@@ -180,18 +180,16 @@ let type_of (expr : expr) : (ty, error) result =
           let handle_closure closure =
             match closure with
             | VClos { name = Some func_name; arg = func_arg; body; env = closure_env } ->
-              let extended_env =
-                Env.add func_name func_value (Env.add func_arg arg_value closure_env)
-              in
-              evaluate extended_env body
+                let extended_env =
+                  Env.add func_name func_value (Env.add func_arg arg_value closure_env)
+                in
+                evaluate extended_env body
             | VClos { name = None; arg = func_arg; body; env = closure_env } ->
-              let extended_env = Env.add func_arg arg_value closure_env in
-              evaluate extended_env body
+                let extended_env = Env.add func_arg arg_value closure_env in
+                evaluate extended_env body
             | _ -> assert false
           in
           handle_closure func_value
-        
-
       | If (condition, then_expr, else_expr) ->
           let handle_condition condition_value =
             match condition_value with
@@ -200,49 +198,51 @@ let type_of (expr : expr) : (ty, error) result =
             | _ -> assert false
           in
           handle_condition (evaluate env condition)
-        
-
-          
       | Bop (operator, expr1, expr2) ->
-          (match operator with
-          | And ->
-              (match evaluate env expr1 with
-              | VBool false -> VBool false
-              | VBool true -> evaluate env expr2
-              | _ -> assert false)
-          | Or ->
-              (match evaluate env expr1 with
-              | VBool true -> VBool true
-              | VBool false -> evaluate env expr2
-              | _ -> assert false)
-          | _ ->
-              let value1 = evaluate env expr1 in
-              let value2 = evaluate env expr2 in
-              (match (value1, value2, operator) with
-              | (VNum num1, VNum num2, Add) -> VNum (num1 + num2)
-              | (VNum num1, VNum num2, Sub) -> VNum (num1 - num2)
-              | (VNum num1, VNum num2, Mul) -> VNum (num1 * num2)
-              | (VNum num1, VNum num2, Div) ->
-                  if num2 = 0 then raise DivByZero else VNum (num1 / num2)
-              | (VNum num1, VNum num2, Mod) ->
-                  if num2 = 0 then raise DivByZero else VNum (num1 mod num2)
-              | (VNum num1, VNum num2, Lt) -> VBool (num1 < num2)
-              | (VNum num1, VNum num2, Lte) -> VBool (num1 <= num2)
-              | (VNum num1, VNum num2, Gt) -> VBool (num1 > num2)
-              | (VNum num1, VNum num2, Gte) -> VBool (num1 >= num2)
-              | (VNum num1, VNum num2, Eq) -> VBool (num1 = num2)
-              | (VNum num1, VNum num2, Neq) -> VBool (num1 <> num2)
-              | _ -> assert false))
+          let evaluate_and operator expr1 expr2 =
+            let value1 = evaluate env expr1 in
+            match value1 with
+            | VBool false when operator = And -> VBool false
+            | VBool true when operator = Or -> VBool true
+            | VBool true -> evaluate env expr2
+            | VBool false -> evaluate env expr2
+            | _ -> assert false
+          in
+          let evaluate_arithmetic op v1 v2 =
+            match (v1, v2, op) with
+            | (VNum num1, VNum num2, Add) -> VNum (num1 + num2)
+            | (VNum num1, VNum num2, Sub) -> VNum (num1 - num2)
+            | (VNum num1, VNum num2, Mul) -> VNum (num1 * num2)
+            | (VNum num1, VNum num2, Div) ->
+                if num2 = 0 then raise DivByZero else VNum (num1 / num2)
+            | (VNum num1, VNum num2, Mod) ->
+                if num2 = 0 then raise DivByZero else VNum (num1 mod num2)
+            | (VNum num1, VNum num2, Lt) -> VBool (num1 < num2)
+            | (VNum num1, VNum num2, Lte) -> VBool (num1 <= num2)
+            | (VNum num1, VNum num2, Gt) -> VBool (num1 > num2)
+            | (VNum num1, VNum num2, Gte) -> VBool (num1 >= num2)
+            | (VNum num1, VNum num2, Eq) -> VBool (num1 = num2)
+            | (VNum num1, VNum num2, Neq) -> VBool (num1 <> num2)
+            | _ -> assert false
+          in
+          if operator = And || operator = Or then
+            evaluate_and operator expr1 expr2
+          else
+            let value1 = evaluate env expr1 in
+            let value2 = evaluate env expr2 in
+            evaluate_arithmetic operator value1 value2
       | Assert expression ->
-          (match evaluate env expression with
-          | VBool true -> VUnit
-          | VBool false -> raise AssertFail
-          | _ -> assert false)
+          let assert_condition value =
+            match value with
+            | VBool true -> VUnit
+            | VBool false -> raise AssertFail
+            | _ -> assert false
+          in
+          assert_condition (evaluate env expression)
     in
     evaluate Env.empty expr
   
-  
-  
+
   
 
 let interp str =
