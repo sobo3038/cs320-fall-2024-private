@@ -2,46 +2,55 @@
 open Utils
 %}
 
+(*basic tokens*)
 %token <int> NUM
 %token <string> VAR
 %token EOF
 
+(*types*)
 %token INTTY "int"
 %token BOOLTY "bool"
 %token UNITTY "unit"
 
-%token ASSERT "assert"
-%token FUN "fun"
-%token LET "let"
-%token REC "rec"
+(*booleans*)
+%token TRUE "true"
+%token FALSE "false"
 
+(*math operators*)
 %token ADD "+"
-%token MUL "*"
 %token SUB "-"
+%token MUL "*"
 %token DIV "/"
 %token MOD "mod"
 
+(*comparison*)
 %token LT "<"
 %token LTE "<="
 %token GT ">"
 %token GTE ">="
+%token EQ "="
 %token NEQ "<>"
+
+(*logic*)
+%token AND "&&"
+%token OR "||"
+
+(*punctuation*)
 %token ARROW "->"
 %token LPAREN "("
 %token RPAREN ")"
-%token EQ "="
-%token AND "&&"
-%token OR "||"
 %token COLON ":"
 %token UNIT "()"
 
+(*keywords*)
+%token LET "let"
+%token REC "rec"
+%token FUN "fun"
+%token ASSERT "assert"
 %token IN "in"
 %token IF "if"
 %token THEN "then"
 %token ELSE "else"
-
-%token TRUE "true"
-%token FALSE "false"
 
 %right OR
 %right AND
@@ -49,10 +58,13 @@ open Utils
 %left ADD SUB
 %left MUL DIV MOD
 
+
 %start <Utils.prog> prog
 
 %%
 
+
+(* defs for struct/exprs *)
 prog:
   | binding_list EOF { $1 }
 

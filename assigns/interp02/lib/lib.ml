@@ -1,8 +1,9 @@
 open Utils
 
-
+(*parser*)
 let parse = My_parser.parse;;
 
+(*desugar func**)
 let desugar prog =
  let rec translate_toplevel = function
    | [] -> Unit
@@ -44,9 +45,7 @@ let desugar prog =
  translate_toplevel prog
 
 
-
-
-
+(*type checking func*)
 let type_of (expr : expr) : (ty, error) result =
   let rec typecheck env expr =
     match expr with
@@ -136,11 +135,11 @@ let type_of (expr : expr) : (ty, error) result =
   in
   typecheck Env.empty expr
 
-
+  (*exceptions used in eval*)
   exception AssertFail
   exception DivByZero
 
-
+  (*evaluation func*)
   let eval (expr : expr) : value =
     let rec evaluate env curr =
       let add_to_env name value env =
@@ -241,10 +240,8 @@ let type_of (expr : expr) : (ty, error) result =
           assert_condition (evaluate env expression)
     in
     evaluate Env.empty expr
-  
 
-  
-
+(*interpreter*)
 let interp str =
  match parse str with
  | Some prog -> (
