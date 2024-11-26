@@ -142,11 +142,11 @@ let type_of (expr : expr) : (ty, error) result =
 
 
   let eval (expr : expr) : value =
-    let rec evaluate_expression env current_expr =
+    let rec evaluate env curr =
       let add_to_env name value env = 
         Env.add name value env
       in
-      match current_expr with
+      match curr with
       | Unit -> VUnit
       | Num n -> VNum n
       | True -> VBool true
@@ -161,56 +161,65 @@ let type_of (expr : expr) : (ty, error) result =
                   | Fun (arg, _, body_fn) ->
                       VClos { name = Some name; arg = arg; body = body_fn; env = env }
                   | _ ->
-                      let arg_placeholder = gensym () in
-                      let wrapped_fn = Fun (arg_placeholder, UnitTy, value) in
-                      VClos { name = Some name; arg = arg_placeholder; body = wrapped_fn; env = env })
+                      let placeholder = gensym () in
+                      let wrapped_fn = Fun (placeholder, UnitTy, value) in
+                      VClos { name = Some name; arg = placeholder; body = wrapped_fn; env = env })
                 in
                 add_to_env name closure env
             | false ->
-                let value_eval = evaluate_expression env value in
+                let value_eval = evaluate env value in
                 add_to_env name value_eval env
           in
           let updated_env = update_environment is_rec in
-          evaluate_expression updated_env body
+          evaluate updated_env body
       | Fun (arg, _, body_fn) ->
           VClos { name = None; arg = arg; body = body_fn; env = env }
 
+
+
           
       | App (function_expr, argument_expr) ->
-          let evaluated_function = evaluate_expression env function_expr in
-          let evaluated_argument = evaluate_expression env argument_expr in
-          (match evaluated_function with
-          | VClos { name = Some func_name; arg; body; env = closure_environment } ->
-              let extended_environment =
-                Env.add func_name evaluated_function
-                  (Env.add arg evaluated_argument closure_environment)
+          let func_value = evaluate env function_expr in
+          let arg_value = evaluate env argument_expr in
+          let handle_closure closure =
+            match closure with
+            | VClos { name = Some func_name; arg = func_arg; body; env = closure_env } ->
+              let extended_env =
+                Env.add func_name func_value (Env.add func_arg arg_value closure_env)
               in
-              evaluate_expression extended_environment body
-          | VClos { name = None; arg; body; env = closure_environment } ->
-              let extended_environment = Env.add arg evaluated_argument closure_environment in
-              evaluate_expression extended_environment body
-          | _ -> assert false)
+              evaluate extended_env body
+            | VClos { name = None; arg = func_arg; body; env = closure_env } ->
+              let extended_env = Env.add func_arg arg_value closure_env in
+              evaluate extended_env body
+            | _ -> assert false
+          in
+          handle_closure func_value
+        
+
+
+          
+
       | If (condition, then_expr, else_expr) ->
-          let evaluated_condition = evaluate_expression env condition in
-          (match evaluated_condition with
-          | VBool true -> evaluate_expression env then_expr
-          | VBool false -> evaluate_expression env else_expr
+          let eval_condition = evaluate env condition in
+          (match eval_condition with
+          | VBool true -> evaluate env then_expr
+          | VBool false -> evaluate env else_expr
           | _ -> assert false)
       | Bop (operator, expr1, expr2) ->
           (match operator with
           | And ->
-              (match evaluate_expression env expr1 with
+              (match evaluate env expr1 with
               | VBool false -> VBool false
-              | VBool true -> evaluate_expression env expr2
+              | VBool true -> evaluate env expr2
               | _ -> assert false)
           | Or ->
-              (match evaluate_expression env expr1 with
+              (match evaluate env expr1 with
               | VBool true -> VBool true
-              | VBool false -> evaluate_expression env expr2
+              | VBool false -> evaluate env expr2
               | _ -> assert false)
           | _ ->
-              let value1 = evaluate_expression env expr1 in
-              let value2 = evaluate_expression env expr2 in
+              let value1 = evaluate env expr1 in
+              let value2 = evaluate env expr2 in
               (match (value1, value2, operator) with
               | (VNum num1, VNum num2, Add) -> VNum (num1 + num2)
               | (VNum num1, VNum num2, Sub) -> VNum (num1 - num2)
@@ -227,12 +236,12 @@ let type_of (expr : expr) : (ty, error) result =
               | (VNum num1, VNum num2, Neq) -> VBool (num1 <> num2)
               | _ -> assert false))
       | Assert expression ->
-          (match evaluate_expression env expression with
+          (match evaluate env expression with
           | VBool true -> VUnit
           | VBool false -> raise AssertFail
           | _ -> assert false)
     in
-    evaluate_expression Env.empty expr
+    evaluate Env.empty expr
   
   
   
