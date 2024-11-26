@@ -133,92 +133,91 @@ let desugar prog =
 
 
   let eval (expr : expr) : value =
-    let rec eval_expr env expr =
-      let eval_let is_rec name value body env =
-        let extended_env =
-          if is_rec then
-            let closure =
-              match value with
-              | Fun (arg, _, body) ->
-                  VClos { name = Some name; arg; body; env }
-              | _ ->
-                  let new_arg = gensym () in
-                  let wrapped = Fun (new_arg, UnitTy, value) in
-                  VClos { name = Some name; arg = new_arg; body = wrapped; env }
-            in
-            Env.add name closure env
-          else
-            let v = eval_expr env value in
-            Env.add name v env
-        in
-        eval_expr extended_env body
+    let rec eval_expr environment expr =
+      let evaluate_binary_op v1 v2 operator =
+        match (v1, v2, operator) with
+        | (VNum n1, VNum n2, Add) -> VNum (n1 + n2)
+        | (VNum n1, VNum n2, Sub) -> VNum (n1 - n2)
+        | (VNum n1, VNum n2, Mul) -> VNum (n1 * n2)
+        | (VNum n1, VNum n2, Div) ->
+            if n2 = 0 then raise DivByZero else VNum (n1 / n2)
+        | (VNum n1, VNum n2, Mod) ->
+            if n2 = 0 then raise DivByZero else VNum (n1 mod n2)
+        | (VNum n1, VNum n2, Lt) -> VBool (n1 < n2)
+        | (VNum n1, VNum n2, Lte) -> VBool (n1 <= n2)
+        | (VNum n1, VNum n2, Gt) -> VBool (n1 > n2)
+        | (VNum n1, VNum n2, Gte) -> VBool (n1 >= n2)
+        | (VNum n1, VNum n2, Eq) -> VBool (n1 = n2)
+        | (VNum n1, VNum n2, Neq) -> VBool (n1 <> n2)
+        | _ -> assert false
       in
       match expr with
-      | Var x -> Env.find x env
       | Unit -> VUnit
       | Num n -> VNum n
       | True -> VBool true
       | False -> VBool false
-      | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
-      | Let { is_rec; name; ty = _; value; body } -> eval_let is_rec name value body env
+      | Var x -> Env.find x environment
+      | Let { is_rec; name; ty = _; value; body } ->
+          let new_environment =
+            if is_rec then
+              let closure =
+                match value with
+                | Fun (arg, _, body) ->
+                    VClos { name = Some name; arg; body; env = environment }
+                | _ ->
+                    let placeholder = gensym () in
+                    let wrapped_body = Fun (placeholder, UnitTy, value) in
+                    VClos { name = Some name; arg = placeholder; body = wrapped_body; env = environment }
+              in
+              Env.add name closure environment
+            else
+              let computed_value = eval_expr environment value in
+              Env.add name computed_value environment
+          in
+          eval_expr new_environment body
+      | Fun (arg, _, body) -> VClos { name = None; arg; body; env = environment }
       | App (e1, e2) ->
-          let func = eval_expr env e1 in
-          let arg_val = eval_expr env e2 in
-          (match func with
-          | VClos { name = Some fname; arg; body; env = closure_env } ->
+          let func_value = eval_expr environment e1 in
+          let arg_value = eval_expr environment e2 in
+          (match func_value with
+          | VClos { name = Some func_name; arg; body; env = closure_env } ->
               let updated_env =
-                Env.add fname func (Env.add arg arg_val closure_env)
+                Env.add func_name func_value (Env.add arg arg_value closure_env)
               in
               eval_expr updated_env body
           | VClos { name = None; arg; body; env = closure_env } ->
-              eval_expr (Env.add arg arg_val closure_env) body
+              eval_expr (Env.add arg arg_value closure_env) body
           | _ -> assert false)
-      | If (cond, then_, else_) ->
-          let cond_val = eval_expr env cond in
-          (match cond_val with
-          | VBool true -> eval_expr env then_
-          | VBool false -> eval_expr env else_
+      | If (cond, then_branch, else_branch) ->
+          let condition = eval_expr environment cond in
+          (match condition with
+          | VBool true -> eval_expr environment then_branch
+          | VBool false -> eval_expr environment else_branch
           | _ -> assert false)
+      | Bop (op, e1, e2) ->
+          let left = eval_expr environment e1 in
+          let right = eval_expr environment e2 in
+          (match op with
+          | And -> (
+              match left with
+              | VBool false -> VBool false
+              | VBool true -> eval_expr environment e2
+              | _ -> assert false)
+          | Or -> (
+              match left with
+              | VBool true -> VBool true
+              | VBool false -> eval_expr environment e2
+              | _ -> assert false)
+          | _ -> evaluate_binary_op left right op)
       | Assert e ->
-          (match eval_expr env e with
+          (match eval_expr environment e with
           | VBool true -> VUnit
           | VBool false -> raise AssertFail
           | _ -> assert false)
-      | Bop (op, e1, e2) ->
-          let v1 = eval_expr env e1 in
-          let v2 = eval_expr env e2 in
-          let compute_binary_op v1 v2 op =
-            match (v1, v2, op) with
-            | VNum n1, VNum n2, Add -> VNum (n1 + n2)
-            | VNum n1, VNum n2, Sub -> VNum (n1 - n2)
-            | VNum n1, VNum n2, Mul -> VNum (n1 * n2)
-            | VNum n1, VNum n2, Div -> if n2 = 0 then raise DivByZero else VNum (n1 / n2)
-            | VNum n1, VNum n2, Mod -> if n2 = 0 then raise DivByZero else VNum (n1 mod n2)
-            | VNum n1, VNum n2, Lt -> VBool (n1 < n2)
-            | VNum n1, VNum n2, Lte -> VBool (n1 <= n2)
-            | VNum n1, VNum n2, Gt -> VBool (n1 > n2)
-            | VNum n1, VNum n2, Gte -> VBool (n1 >= n2)
-            | VNum n1, VNum n2, Eq -> VBool (n1 = n2)
-            | VNum n1, VNum n2, Neq -> VBool (n1 <> n2)
-            | _ -> assert false
-          in
-          (match op with
-          | And ->
-              (match v1 with
-              | VBool false -> VBool false
-              | VBool true -> eval_expr env e2
-              | _ -> assert false)
-          | Or ->
-              (match v1 with
-              | VBool true -> VBool true
-              | VBool false -> eval_expr env e2
-              | _ -> assert false)
-          | _ -> compute_binary_op v1 v2 op)
     in
     eval_expr Env.empty expr
   
-
-
+  
 
 let interp str =
  match parse str with
