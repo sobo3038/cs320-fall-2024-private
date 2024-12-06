@@ -15,32 +15,25 @@ let rec substitute subst ty =
   | TOption t -> TOption (substitute subst t)
   | _ -> ty
 
-  let rec unify ty constraints =
-    let rec occurs x constraints =
-      match constraints with
-      | [] -> false
-      | (TVar y, _) :: _ when x = y -> true
-      | (_, TVar y) :: _ when x = y -> true
-      | _ :: rest -> occurs x rest
-    in
-    match constraints with
-    | [] -> Some (Forall ([], ty))
-    | (t1, t2) :: rest when t1 = t2 -> unify ty rest
-    | (TVar x, t) :: rest | (t, TVar x) :: rest ->
-        if occurs x rest then None
-        else
-          let subst = [(x, t)] in
-          let updated_ty = substitute subst ty in
-          let updated_constraints = List.map (fun (t1, t2) -> (substitute subst t1, substitute subst t2)) rest in
-          unify updated_ty updated_constraints
-    | (TFun (t1a, t1b), TFun (t2a, t2b)) :: rest ->
-        unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
-    | (TPair (t1a, t1b), TPair (t2a, t2b)) :: rest ->
-        unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
-    | (TList t1, TList t2) :: rest | (TOption t1, TOption t2) :: rest ->
-        unify ty ((t1, t2) :: rest)
-    | _ -> None
-  
+let substitute_constraints subst constraints =
+  List.map (fun (t1, t2) -> (substitute subst t1, substitute subst t2)) constraints
+
+let rec unify ty constraints =
+  match constraints with
+  | [] -> Some (Forall ([], ty))
+  | (t1, t2) :: rest when t1 = t2 -> unify ty rest
+  | (TVar x, t) :: rest | (t, TVar x) :: rest ->
+      if substitute [(x, t)] t = TVar x then None 
+      else
+        let subst = [(x, t)] in
+        unify (substitute subst ty) (substitute_constraints subst rest)
+  | (TFun (t1a, t1b), TFun (t2a, t2b)) :: rest ->
+      unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
+  | (TPair (t1a, t1b), TPair (t2a, t2b)) :: rest ->
+      unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
+  | (TList t1, TList t2) :: rest | (TOption t1, TOption t2) :: rest ->
+      unify ty ((t1, t2) :: rest)
+  | _ -> None
 
 let rec type_of env expr =
   match expr with
@@ -67,12 +60,23 @@ let rec type_of env expr =
       | _ -> None)
   | If (cond, then_branch, else_branch) ->
       (match type_of env cond, type_of env then_branch, type_of env else_branch with
-      | Some (Forall (_, TBool)), Some (Forall (_, t1)), Some (Forall (_, t2)) when t1 = t2 ->
-          Some (Forall ([], t1))
+      | Some (Forall (_, TBool)), Some (Forall (_, t1)), Some (Forall (_, t2)) ->
+          let constraints = [(t1, t2)] in
+          (match unify t1 constraints with
+          | Some (Forall (_, unified_ty)) -> Some (Forall ([], unified_ty))
+          | None -> None)
       | _ -> None)
-  | Let { is_rec = _; name; value; body } ->
-      (match type_of env value with
-      | Some ty -> type_of (Env.add name ty env) body
+  | Let { is_rec; name; value; body } ->
+      let env' = 
+        if is_rec then
+          let rec_ty = TVar (gensym ()) in
+          Env.add name (Forall ([], rec_ty)) env
+        else env
+      in
+      (match type_of env' value with
+      | Some (Forall (_, value_ty)) ->
+          let env' = Env.add name (Forall ([], value_ty)) env' in
+          type_of env' body
       | None -> None)
   | _ -> None
 
@@ -91,16 +95,21 @@ let rec eval_expr env expr =
       | _ -> failwith "Non-boolean condition")
   | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
   | App (f, arg) ->
-    (match eval_expr env f with
-    | VClos { name = _; arg = param; body; env = closure_env } -> 
-        let arg_val = eval_expr env arg in
-        let env' = Env.add param arg_val closure_env in
-        eval_expr env' body
-    | _ -> failwith "Application to non-function")
-
+      (match eval_expr env f with
+      | VClos { name = _; arg = param; body; env = closure_env } ->
+          let arg_val = eval_expr env arg in
+          let env' = Env.add param arg_val closure_env in
+          eval_expr env' body
+      | _ -> failwith "Application to non-function")
   | Let { is_rec = false; name; value; body } ->
       let value_val = eval_expr env value in
       eval_expr (Env.add name value_val env) body
+  | Let { is_rec = true; name; value; body } ->
+      (match value with
+      | Fun (arg, _, body_fun) ->
+          let rec_env = Env.add name (VClos { name = Some name; arg; body = body_fun; env }) env in
+          eval_expr rec_env body
+      | _ -> raise RecWithoutArg)
   | _ -> failwith "Unsupported expression"
 
 let type_check =
