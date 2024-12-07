@@ -217,9 +217,9 @@ let rec eval_expr env expr =
   | App (f, arg) -> (
       match eval_expr env f with
       | VClos { name = _; arg = param; body; env = closure_env } ->
-        let arg_val = eval_expr env arg in
-        let env' = Env.add param arg_val closure_env in
-        eval_expr env' body    
+          let arg_val = eval_expr env arg in
+          let env' = Env.add param arg_val closure_env in
+          eval_expr env' body    
       | _ -> failwith "Application to non-function"
     )
   | Bop (op, e1, e2) -> (
@@ -231,13 +231,15 @@ let rec eval_expr env expr =
       | (Mul, VInt x, VInt y) -> VInt (x * y)
       | (Div, VInt x, VInt y) when y <> 0 -> VInt (x / y)
       | (Mod, VInt x, VInt y) when y <> 0 -> VInt (x mod y)
+      | (And, VBool b1, VBool b2) -> VBool (b1 && b2)
+      | (Or, VBool b1, VBool b2) -> VBool (b1 || b2)
       | _ -> failwith "Unsupported binary operation or mismatched types"
     )
   | If (cond, then_branch, else_branch) -> (
       match eval_expr env cond with
       | VBool true -> eval_expr env then_branch
       | VBool false -> eval_expr env else_branch
-      | _ -> failwith "Non-boolean condition"
+      | _ -> failwith "Non-boolean condition in if-expression"
     )
   | Let { is_rec = false; name; value; body } ->
       let value_val = eval_expr env value in
