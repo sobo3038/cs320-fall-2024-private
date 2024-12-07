@@ -63,35 +63,58 @@ let rec unify ty constraints =
 
 
 (* Type Inference *)
-let rec type_of env expr =
+let type_of env expr =
+  (* Helper Functions *)
+  
+  (* Applies a substitution to a type *)
+  let rec apply_subst subst ty =
+    match ty with
+    | TVar x -> (try List.assoc x subst with Not_found -> ty)
+    | TFun (t1, t2) -> TFun (apply_subst subst t1, apply_subst subst t2)
+    | TPair (t1, t2) -> TPair (apply_subst subst t1, apply_subst subst t2)
+    | TList t -> TList (apply_subst subst t)
+    | TOption t -> TOption (apply_subst subst t)
+    | _ -> ty
+  in
+
+  (* Gathers all free variables in a type *)
+  let rec free_vars ty =
+    match ty with
+    | TVar x -> [x]
+    | TFun (t1, t2) | TPair (t1, t2) -> free_vars t1 @ free_vars t2
+    | TList t | TOption t -> free_vars t
+    | _ -> []
+  in
+
+  (* Custom sort_uniq function to deduplicate free variables *)
+  let sort_uniq cmp lst =
+    let sorted = List.sort cmp lst in
+    let rec dedup acc = function
+      | [] -> List.rev acc
+      | [x] -> List.rev (x :: acc)
+      | x :: (y :: _ as rest) -> if cmp x y = 0 then dedup acc rest else dedup (x :: acc) rest
+    in
+    dedup [] sorted
+  in
+
+  (* Instantiates a type scheme with fresh type variables *)
+  let instantiate (vars, ty) =
+    let subst = List.map (fun var -> (var, TVar (gensym ()))) vars in
+    apply_subst subst ty
+  in
+
+  (* Unifies constraints and returns the most general unifier *)
   let rec unify ty constraints =
-    let rec occurs x ty =
-      match ty with
-      | TVar y -> x = y
-      | TFun (t1, t2) | TPair (t1, t2) -> occurs x t1 || occurs x t2
-      | TList t | TOption t -> occurs x t
-      | _ -> false
-    in
-    let rec apply_subst subst ty =
-      match ty with
-      | TVar x -> (try List.assoc x subst with Not_found -> ty)
-      | TFun (t1, t2) -> TFun (apply_subst subst t1, apply_subst subst t2)
-      | TPair (t1, t2) -> TPair (apply_subst subst t1, apply_subst subst t2)
-      | TList t -> TList (apply_subst subst t)
-      | TOption t -> TOption (apply_subst subst t)
-      | _ -> ty
-    in
-    let apply_subst_constraints subst constraints =
-      List.map (fun (t1, t2) -> (apply_subst subst t1, apply_subst subst t2)) constraints
-    in
     match constraints with
-    | [] -> Some ty
+    | [] -> 
+        let free = sort_uniq compare (free_vars ty) in
+        Some (Forall (free, ty))
     | (t1, t2) :: rest when t1 = t2 -> unify ty rest
     | (TVar x, t) :: rest | (t, TVar x) :: rest ->
-        if occurs x t then None
+        if List.mem x (free_vars t) then None
         else
           let subst = [(x, t)] in
-          unify (apply_subst subst ty) (apply_subst_constraints subst rest)
+          unify (apply_subst subst ty) (List.map (fun (t1, t2) -> (apply_subst subst t1, apply_subst subst t2)) rest)
     | (TFun (t1a, t1b), TFun (t2a, t2b)) :: rest ->
         unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
     | (TPair (t1a, t1b), TPair (t2a, t2b)) :: rest ->
@@ -100,77 +123,66 @@ let rec type_of env expr =
         unify ty ((t1, t2) :: rest)
     | _ -> None
   in
-  match expr with
-  | Unit -> Some (Forall ([], TUnit))
-  | True | False -> Some (Forall ([], TBool))
-  | Int _ -> Some (Forall ([], TInt))
-  | Float _ -> Some (Forall ([], TFloat))
-  | Var x -> Env.find_opt x env
-  | Fun (arg, annot, body) ->
-      let arg_ty = match annot with
-        | Some ty -> ty
-        | None -> TVar (gensym ())
-      in
-      let env' = Env.add arg (Forall ([], arg_ty)) env in
-      (match type_of env' body with
-      | Some (Forall (_, body_ty)) ->
-          let vars =
-            let rec free_vars ty acc =
-              match ty with
-              | TVar x -> x :: acc
-              | TFun (t1, t2) | TPair (t1, t2) -> free_vars t1 (free_vars t2 acc)
-              | TList t | TOption t -> free_vars t acc
-              | _ -> acc
-            in
-            free_vars (TFun (arg_ty, body_ty)) []
-          in
-          Some (Forall (vars, TFun (arg_ty, body_ty)))
-      | None -> None)
-  | App (f, arg) ->
-      let arg_ty = TVar (gensym ()) in
-      let ret_ty = TVar (gensym ()) in
-      (match type_of env f, type_of env arg with
-      | Some (Forall (_, f_ty)), Some (Forall (_, arg_actual_ty)) ->
-          (match unify ret_ty [(f_ty, TFun (arg_ty, ret_ty)); (arg_ty, arg_actual_ty)] with
-          | Some unified_ty -> Some (Forall ([], unified_ty))
-          | None -> None)
-      | _ -> None)
-  | If (cond, then_branch, else_branch) ->
-      (match type_of env cond with
-      | Some (Forall (_, TBool)) ->
-          (match type_of env then_branch, type_of env else_branch with
-          | Some (Forall (_, t1)), Some (Forall (_, t2)) ->
-              if t1 = t2 then Some (Forall ([], t1))
-              else unify t1 [(t1, t2)] |> Option.map (fun unified_ty -> Forall ([], unified_ty))
-          | _ -> None)
-      | _ -> None)
-  | Let { is_rec; name; value; body } ->
-      let env' =
-        if is_rec then Env.add name (Forall ([], TVar (gensym ()))) env else env
-      in
-      (match type_of env' value with
-      | Some (Forall (_, value_ty)) ->
-          let env'' = Env.add name (Forall ([], value_ty)) env in
-          type_of env'' body
-      | None -> None)
-  | PairMatch { matched; fst_name; snd_name; case } ->
-      (match type_of env matched with
-      | Some (Forall (_, TPair (t1, t2))) ->
-          let env' = Env.add fst_name (Forall ([], t1)) (Env.add snd_name (Forall ([], t2)) env) in
-          type_of env' case
-      | _ -> None)
-  | ListMatch { matched; hd_name; tl_name; cons_case; nil_case } ->
-      (match type_of env matched with
-      | Some (Forall (_, TList elem_ty)) ->
-          let env' =
-            Env.add hd_name (Forall ([], elem_ty)) (Env.add tl_name (Forall ([], TList elem_ty)) env)
-          in
-          (match type_of env' cons_case, type_of env nil_case with
-          | Some (Forall (_, t1)), Some (Forall (_, t2)) when t1 = t2 ->
-              Some (Forall ([], t1))
-          | _ -> None)
-      | _ -> None)
-  | _ -> None
+
+  (* Infers the type of an expression *)
+  let rec infer env expr =
+    match expr with
+    | Unit -> (TUnit, [])
+    | True | False -> (TBool, [])
+    | Int _ -> (TInt, [])
+    | Float _ -> (TFloat, [])
+    | Var x -> (
+        match Env.find_opt x env with
+        | Some (Forall (vars, ty)) -> (instantiate (vars, ty), [])
+        | None -> failwith ("Unbound variable: " ^ x)
+      )
+    | Fun (arg, annot, body) ->
+        let arg_ty = match annot with
+          | Some ty -> ty
+          | None -> TVar (gensym ())
+        in
+        let env' = Env.add arg (Forall ([], arg_ty)) env in
+        let body_ty, constraints = infer env' body in
+        (TFun (arg_ty, body_ty), constraints)
+    | App (f, arg) ->
+        let fun_ty, c1 = infer env f in
+        let arg_ty, c2 = infer env arg in
+        let ret_ty = TVar (gensym ()) in
+        (ret_ty, (fun_ty, TFun (arg_ty, ret_ty)) :: c1 @ c2)
+    | If (cond, then_branch, else_branch) ->
+        let cond_ty, c1 = infer env cond in
+        let then_ty, c2 = infer env then_branch in
+        let else_ty, c3 = infer env else_branch in
+        (then_ty, (cond_ty, TBool) :: (then_ty, else_ty) :: c1 @ c2 @ c3)
+    | Let { is_rec = false; name; value; body } ->
+        let val_ty, c1 = infer env value in
+        let env' = Env.add name (Forall ([], val_ty)) env in
+        let body_ty, c2 = infer env' body in
+        (body_ty, c1 @ c2)
+    | Let { is_rec = true; name; value; body } ->
+        let fresh_ty = TVar (gensym ()) in
+        let env' = Env.add name (Forall ([], fresh_ty)) env in
+        let val_ty, c1 = infer env' value in
+        let env'' = Env.add name (Forall ([], val_ty)) env in
+        let body_ty, c2 = infer env'' body in
+        (body_ty, c1 @ c2)
+    | PairMatch { matched; fst_name; snd_name; case } ->
+        let matched_ty, c1 = infer env matched in
+        let fst_ty = TVar (gensym ()) in
+        let snd_ty = TVar (gensym ()) in
+        let env' = Env.add fst_name (Forall ([], fst_ty)) (Env.add snd_name (Forall ([], snd_ty)) env) in
+        let case_ty, c2 = infer env' case in
+        (case_ty, (matched_ty, TPair (fst_ty, snd_ty)) :: c1 @ c2)
+    | _ -> failwith "Unsupported expression in infer"
+  in
+
+  (* Main body of type_of *)
+  try
+    let ty, constraints = infer env expr in
+    match unify ty constraints with
+    | Some scheme -> Some scheme
+    | None -> None
+  with _ -> None
 
   
 
