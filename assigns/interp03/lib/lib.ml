@@ -1,26 +1,24 @@
 open Utils
 include My_parser
-
 exception AssertFail
 exception DivByZero
 exception RecWithoutArg
 exception CompareFunVals
 
-(* Unification *)
 let rec unify ty constraints =
-  let rec free_vars ty =
-    match ty with
-    | TVar x -> [x]
-    | TFun (t1, t2) | TPair (t1, t2) -> free_vars t1 @ free_vars t2
-    | TList t | TOption t -> free_vars t
-    | _ -> []
-  in
   let rec occurs x ty =
     match ty with
     | TVar y -> x = y
     | TFun (t1, t2) | TPair (t1, t2) -> occurs x t1 || occurs x t2
     | TList t | TOption t -> occurs x t
     | _ -> false
+  in
+  let rec free_vars ty =
+    match ty with
+    | TVar x -> [x]
+    | TFun (t1, t2) | TPair (t1, t2) -> free_vars t1 @ free_vars t2
+    | TList t | TOption t -> free_vars t
+    | _ -> []
   in
   let rec apply_subst subst ty =
     match ty with
@@ -36,37 +34,47 @@ let rec unify ty constraints =
   in
   let sort_uniq cmp lst =
     let sorted = List.sort cmp lst in
-    let rec dedup acc = function
+    let rec uniq acc = function
       | [] -> List.rev acc
       | [x] -> List.rev (x :: acc)
-      | x :: (y :: _ as rest) -> if cmp x y = 0 then dedup acc rest else dedup (x :: acc) rest
+      | x :: (y :: _ as rest) -> if cmp x y = 0 then uniq acc rest else uniq (x :: acc) rest
     in
-    dedup [] sorted
+    uniq [] sorted
   in
   match constraints with
-  | [] -> Some (Forall (sort_uniq compare (free_vars ty), ty))
-  | (t1, t2) :: rest when t1 = t2 -> unify ty rest
+  | [] -> 
+    let free = sort_uniq compare (free_vars ty) in
+    Some (Forall (free, ty)) 
+  | (t1, t2) :: rest when t1 = t2 -> unify ty rest 
   | (TVar x, t) :: rest | (t, TVar x) :: rest ->
-      if occurs x t then None
-      else
-        let subst = [(x, t)] in
-        let updated_ty = apply_subst subst ty in
-        let updated_constraints = apply_subst_to_constraints subst rest in
-        unify updated_ty updated_constraints
+    if occurs x t then None 
+    else
+      let subst = [(x, t)] in
+      let unified_ty = apply_subst subst ty in
+      let unified_constraints = apply_subst_to_constraints subst rest in
+      (match unify unified_ty unified_constraints with
+       | Some (Forall (vars, final_ty)) ->
+         let new_vars = List.filter (fun v -> v <> x) vars in
+         Some (Forall (new_vars, final_ty))
+       | None -> None)
   | (TFun (t1a, t1b), TFun (t2a, t2b)) :: rest ->
-      unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
+    unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
   | (TPair (t1a, t1b), TPair (t2a, t2b)) :: rest ->
-      unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
+    unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
   | (TList t1, TList t2) :: rest | (TOption t1, TOption t2) :: rest ->
-      unify ty ((t1, t2) :: rest)
+    unify ty ((t1, t2) :: rest)
+  | (TInt, TFloat) :: _ | (TFloat, TInt) :: _ -> None 
+  | (TBool, TInt) :: _ | (TBool, TFloat) :: _ -> None 
   | _ -> None
 
-
-(* Type Inference *)
-let type_of env expr =
-  (* Helper Functions *)
-  
-  (* Applies a substitution to a type *)
+let type_of (env : stc_env) (e : expr) : ty_scheme option =
+  let rec free_vars ty =
+    match ty with
+    | TVar x -> [x]
+    | TFun (t1, t2) | TPair (t1, t2) -> free_vars t1 @ free_vars t2
+    | TList t | TOption t -> free_vars t
+    | _ -> []
+  in
   let rec apply_subst subst ty =
     match ty with
     | TVar x -> (try List.assoc x subst with Not_found -> ty)
@@ -76,218 +84,389 @@ let type_of env expr =
     | TOption t -> TOption (apply_subst subst t)
     | _ -> ty
   in
-
-  (* Gathers all free variables in a type *)
-  let rec free_vars ty =
-    match ty with
-    | TVar x -> [x]
-    | TFun (t1, t2) | TPair (t1, t2) -> free_vars t1 @ free_vars t2
-    | TList t | TOption t -> free_vars t
-    | _ -> []
-  in
-
-  (* Custom sort_uniq function to deduplicate free variables *)
-  let sort_uniq cmp lst =
-    let sorted = List.sort cmp lst in
-    let rec dedup acc = function
-      | [] -> List.rev acc
-      | [x] -> List.rev (x :: acc)
-      | x :: (y :: _ as rest) -> if cmp x y = 0 then dedup acc rest else dedup (x :: acc) rest
-    in
-    dedup [] sorted
-  in
-
-  (* Instantiates a type scheme with fresh type variables *)
   let instantiate (vars, ty) =
     let subst = List.map (fun var -> (var, TVar (gensym ()))) vars in
     apply_subst subst ty
   in
-
-  (* Unifies constraints and returns the most general unifier *)
-  let rec unify ty constraints =
-    match constraints with
-    | [] -> 
-        let free = sort_uniq compare (free_vars ty) in
-        Some (Forall (free, ty))
-    | (t1, t2) :: rest when t1 = t2 -> unify ty rest
-    | (TVar x, t) :: rest | (t, TVar x) :: rest ->
-        if List.mem x (free_vars t) then None
-        else
-          let subst = [(x, t)] in
-          unify (apply_subst subst ty) (List.map (fun (t1, t2) -> (apply_subst subst t1, apply_subst subst t2)) rest)
-    | (TFun (t1a, t1b), TFun (t2a, t2b)) :: rest ->
-        unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
-    | (TPair (t1a, t1b), TPair (t2a, t2b)) :: rest ->
-        unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
-    | (TList t1, TList t2) :: rest | (TOption t1, TOption t2) :: rest ->
-        unify ty ((t1, t2) :: rest)
-    | _ -> None
+  let free_vars_in_env env =
+    List.fold_left
+      (fun acc (_, Forall (_, t)) -> free_vars t @ acc)
+      [] (Env.to_list env)
   in
-
-  (* Infers the type of an expression *)
-  let rec infer env expr =
-    match expr with
+  let rec infer env = function
     | Unit -> (TUnit, [])
     | True | False -> (TBool, [])
     | Int _ -> (TInt, [])
     | Float _ -> (TFloat, [])
     | Var x -> (
         match Env.find_opt x env with
-        | Some (Forall (vars, ty)) -> (instantiate (vars, ty), [])
+        | Some (Forall (vars, t)) -> (instantiate (vars, t), [])
         | None -> failwith ("Unbound variable: " ^ x)
       )
-    | Fun (arg, annot, body) ->
-        let arg_ty = match annot with
-          | Some ty -> ty
-          | None -> TVar (gensym ())
-        in
-        let env' = Env.add arg (Forall ([], arg_ty)) env in
-        let body_ty, constraints = infer env' body in
-        (TFun (arg_ty, body_ty), constraints)
-    | App (f, arg) ->
-        let fun_ty, c1 = infer env f in
-        let arg_ty, c2 = infer env arg in
-        let ret_ty = TVar (gensym ()) in
-        (ret_ty, (fun_ty, TFun (arg_ty, ret_ty)) :: c1 @ c2)
-    | If (cond, then_branch, else_branch) ->
-        let cond_ty, c1 = infer env cond in
-        let then_ty, c2 = infer env then_branch in
-        let else_ty, c3 = infer env else_branch in
-        (then_ty, (cond_ty, TBool) :: (then_ty, else_ty) :: c1 @ c2 @ c3)
+    | ENone -> (TOption (TVar (gensym ())), [])
+    | ESome e ->
+      let t, c = infer env e in
+      (TOption t, c)
+    | Nil -> (TList (TVar (gensym ())), [])
+    | OptMatch { matched; some_name; some_case; none_case } ->
+      let t_matched, c_matched = infer env matched in
+      let fresh_elem = TVar (gensym ()) in
+      let env_with_some = Env.add some_name (Forall ([], fresh_elem)) env in
+      let t_some_case, c_some = infer env_with_some some_case in
+      let t_none_case, c_none = infer env none_case in
+      (t_some_case, (t_matched, TOption fresh_elem) :: (t_some_case, t_none_case) :: c_matched @ c_some @ c_none)
+    | Bop (op, e1, e2) -> (
+        let t1, c1 = infer env e1 in
+        let t2, c2 = infer env e2 in
+        match op with
+        | Add | Sub | Mul | Div | Mod ->
+            (TInt, (t1, TInt) :: (t2, TInt) :: c1 @ c2)
+        | AddF | SubF | MulF | DivF | PowF ->
+            (TFloat, (t1, TFloat) :: (t2, TFloat) :: c1 @ c2)
+        | And | Or ->
+            (TBool, (t1, TBool) :: (t2, TBool) :: c1 @ c2)
+        | Eq | Neq ->
+          let fresh = TVar (gensym ()) in
+          (TBool, (t1, fresh) :: (t2, fresh) :: c1 @ c2)
+        | Lt | Lte | Gt | Gte ->
+          let fresh = TVar (gensym ()) in
+          (TBool, (t1, fresh) :: (t2, fresh) :: c1 @ c2)
+        | Cons ->
+          let t1, c1 = infer env e1 in
+          let t2, c2 = infer env e2 in
+          (TList t1, (t2, TList t1) :: c1 @ c2)
+        | Concat ->
+          let t1, c1 = infer env e1 in
+          let t2, c2 = infer env e2 in
+          let fresh = TVar (gensym ()) in
+          (TList fresh, (t1, TList fresh) :: (t2, TList fresh) :: c1 @ c2)
+        | Comma ->
+          let t1, c1 = infer env e1 in
+          let t2, c2 = infer env e2 in
+          (TPair (t1, t2), c1 @ c2)
+      )
+    | If (e1, e2, e3) ->
+        let t1, c1 = infer env e1 in
+        let t2, c2 = infer env e2 in
+        let t3, c3 = infer env e3 in
+        (t2, (t1, TBool) :: (t2, t3) :: c1 @ c2 @ c3)
+    | Fun (x, Some ty, body) ->
+        let env = Env.add x (Forall ([], ty)) env in
+        let t_body, c_body = infer env body in
+        (TFun (ty, t_body), c_body)
+    | Fun (arg, None, body) ->
+      let fresh_arg = TVar (gensym ()) in
+      let env = Env.add arg (Forall ([], fresh_arg)) env in
+      let t_body, c_body = infer env body in
+      (TFun (fresh_arg, t_body), c_body)   
+    | App (e1, e2) ->
+      let t_fun, c_fun = infer env e1 in
+      let t_arg, c_arg = infer env e2 in
+      let fresh = TVar (gensym ()) in
+      (fresh, (t_fun, TFun (t_arg, fresh)) :: c_fun @ c_arg)
     | Let { is_rec = false; name; value; body } ->
-        let val_ty, c1 = infer env value in
-        let env' = Env.add name (Forall ([], val_ty)) env in
-        let body_ty, c2 = infer env' body in
-        (body_ty, c1 @ c2)
+      let t_val, c_val = infer env value in
+      let env = Env.add name (Forall ([], t_val)) env in
+      let t_body, c_body = infer env body in
+      (t_body, c_val @ c_body)
     | Let { is_rec = true; name; value; body } ->
-        let fresh_ty = TVar (gensym ()) in
-        let env' = Env.add name (Forall ([], fresh_ty)) env in
-        let val_ty, c1 = infer env' value in
-        let env'' = Env.add name (Forall ([], val_ty)) env in
-        let body_ty, c2 = infer env'' body in
-        (body_ty, c1 @ c2)
+      let fresh = TVar (gensym ()) in
+      let env_with_fresh = Env.add name (Forall ([], fresh)) env in
+      let t_val, c_val = infer env_with_fresh value in
+      let env_free_vars = free_vars_in_env env in
+      let generalized_type =
+        Forall (
+          List.filter (fun v -> not (List.mem v env_free_vars)) (free_vars t_val),
+          t_val
+        )
+      in
+      let env = Env.add name generalized_type env in
+      let t_body, c_body = infer env body in
+      (t_body, c_val @ c_body)
+    | Assert False -> (TVar (gensym ()), [])
+    | Assert e ->
+      let t, c = infer env e in
+      (TUnit, (t, TBool) :: c)  
+    | Annot (e, ty) ->
+        let t, c = infer env e in
+        (ty, (t, ty) :: c)
     | PairMatch { matched; fst_name; snd_name; case } ->
-        let matched_ty, c1 = infer env matched in
-        let fst_ty = TVar (gensym ()) in
-        let snd_ty = TVar (gensym ()) in
-        let env' = Env.add fst_name (Forall ([], fst_ty)) (Env.add snd_name (Forall ([], snd_ty)) env) in
-        let case_ty, c2 = infer env' case in
-        (case_ty, (matched_ty, TPair (fst_ty, snd_ty)) :: c1 @ c2)
-    | _ -> failwith "Unsupported expression in infer"
+      let t_matched, c_matched = infer env matched in
+      let fresh1 = TVar (gensym ()) in
+      let fresh2 = TVar (gensym ()) in
+      let extended_env = Env.add fst_name (Forall ([], fresh1)) (Env.add snd_name (Forall ([], fresh2)) env) in
+      let t_case, c_case = infer extended_env case in
+      (t_case, (t_matched, TPair (fresh1, fresh2)) :: c_matched @ c_case)
+    | ListMatch { matched; hd_name; tl_name; cons_case; nil_case } ->
+      let t_matched, c_matched = infer env matched in
+      let fresh_elem = TVar (gensym ()) in
+      let env_hd = Env.add hd_name (Forall ([], fresh_elem)) env in
+      let env_tl = Env.add tl_name (Forall ([], TList fresh_elem)) env_hd in
+      let t_cons_case, c_cons_case = infer env_tl cons_case in
+      let t_nil_case, c_nil_case = infer env nil_case in
+      (t_nil_case, (t_matched, TList fresh_elem) :: (t_cons_case, t_nil_case) :: c_matched @ c_cons_case @ c_nil_case)
   in
-
-  (* Main body of type_of *)
   try
-    let ty, constraints = infer env expr in
-    match unify ty constraints with
-    | Some scheme -> Some scheme
+    let t, c = infer env e in
+    let t = unify t c in
+    match t with
+    | Some t -> Some t 
     | None -> None
   with _ -> None
 
-  
-
-(* Evaluation *)
-let rec eval_expr env expr =
-  match expr with
-  | Unit -> VUnit
-  | True -> VBool true
-  | False -> VBool false
+let rec eval_expr env expr : value = 
+  let rec go = function
+  | Unit -> VUnit 
+  | True -> VBool true 
+  | False -> VBool false 
   | Int n -> VInt n
   | Float f -> VFloat f
   | ENone -> VNone
   | Nil -> VList []
   | Var x -> Env.find x env
-  | Fun (arg, _, body) -> VClos { name = None; arg; body; env }
-  | App (f, arg) -> (
-      match eval_expr env f with
-      | VClos { name = _; arg = param; body; env = closure_env } ->
-          let arg_val = eval_expr env arg in
-          let env' = Env.add param arg_val closure_env in
-          eval_expr env' body    
-      | _ -> failwith "Application to non-function"
+  | Fun (x, _, body) -> VClos {name=None; arg = x; body; env}
+  | App (e1, e2) -> (
+        match go e1 with
+        | VClos { env; name; arg; body } ->
+          let env =
+            match name with
+            | None -> env
+            | Some name -> Env.add name (VClos { env; name = Some name; arg; body }) env
+          in
+          let env = Env.add arg (go e2) env in
+          eval_expr env body
+        | _ -> failwith "impossible"
+      )
+  | Bop (Add, e1, e2) -> 
+      (match go e1, go e2 with
+      | VInt m, VInt n -> VInt (m+n)
+      | _ -> failwith "impossible")
+  | Bop (AddF, e1, e2) -> 
+        (match go e1, go e2 with
+        | VFloat m, VFloat n -> VFloat (m+.n)
+        | _ -> failwith "impossible")
+  | Bop (Sub, e1, e2) -> 
+      (match go e1, go e2 with
+      | VInt m, VInt n -> VInt (m-n)
+      | _ -> failwith "impossible")
+  | Bop (SubF, e1, e2) -> 
+      (match go e1, go e2 with
+      | VFloat m, VFloat n -> VFloat (m-.n)
+      | _ -> failwith "impossible")
+  | Bop (Mul, e1, e2) -> 
+      (match go e1, go e2 with
+      | VInt m, VInt n -> VInt (m*n)
+      | _ -> failwith "impossible")
+  | Bop (MulF, e1, e2) -> 
+        (match go e1, go e2 with
+        | VFloat m, VFloat n -> VFloat (m*.n)
+        | _ -> failwith "impossible")
+  | Bop (Div, e1, e2) -> 
+      (match go e1 with
+      | (VInt m) -> (
+          match go e2 with
+          | (VInt 0) -> raise DivByZero
+          | (VInt n) -> (VInt (m / n))
+          | _ -> failwith (""))
+        | _ -> failwith (""))
+  | Bop (DivF, e1, e2) -> 
+    (match go e1 with
+    | (VFloat m) -> (
+        match go e2 with
+        | (VFloat n) -> (VFloat (m /. n))
+        | _ ->  (failwith (""))
+      )
+      | _ ->  (failwith ("")) )
+  | Bop (Mod, e1, e2) -> (
+      match go e1, go e2 with
+      | VInt m, VInt n when n <> 0 -> VInt (m mod n)
+      | VInt _, VInt 0 -> failwith "Division by zero in modulo operation"
+      | _ -> failwith "Modulo operation requires two numbers")
+  | Bop (PowF, e1, e2) -> 
+        (match go e1, go e2 with
+        | VFloat m, VFloat n -> VFloat (m**n)
+        | _ -> failwith "impossible")
+  | Bop (Eq, e1, e2) -> (
+    match go e1, go e2 with
+    | VClos _, _ | _, VClos _ -> raise CompareFunVals
+    | VInt m, VInt n -> VBool (m = n)
+    | VFloat m, VFloat n -> VBool (m = n)
+    | VBool m, VBool n -> VBool (m = n)
+    | VUnit, VUnit -> VBool true
+    | VList lst1, VList lst2 -> VBool (lst1 = lst2)
+    | VPair (v1a, v1b), VPair (v2a, v2b) -> VBool (v1a = v2a && v1b = v2b)
+    | VSome v1, VSome v2 -> VBool (v1 = v2)
+    | VNone, VNone -> VBool true
+    | _ -> VBool false)
+  | Bop (Neq, e1, e2) -> (
+      match go e1, go e2 with
+      | VClos _, _ | _, VClos _ -> raise CompareFunVals
+      | VInt m, VInt n -> VBool (m <> n)
+      | VFloat m, VFloat n -> VBool (m <> n)
+      | VBool m, VBool n -> VBool (m <> n)
+      | VUnit, VUnit -> VBool false
+      | VList lst1, VList lst2 -> VBool (lst1 <> lst2)
+      | VPair (v1a, v1b), VPair (v2a, v2b) -> VBool (v1a <> v2a || v1b <> v2b)
+      | VSome v1, VSome v2 -> VBool (v1 <> v2)
+      | VNone, VNone -> VBool false
+      | _ -> VBool true)
+  | Bop (Lt, e1, e2) -> (
+    match go e1, go e2 with
+    | VInt m, VInt n -> VBool (m < n)                     
+    | VFloat m, VFloat n -> VBool (m < n)                 
+    | VBool m, VBool n -> VBool ((not m) && n)            
+    | VList lst1, VList lst2 -> VBool (lst1 < lst2)       
+    | VSome v1, VSome v2 -> VBool (v1 < v2)               
+    | VNone, VSome _ -> VBool true                        
+    | VNone, VNone -> VBool false                         
+    | _ -> failwith "Lt requires comparable types"
     )
-  | Bop (op, e1, e2) -> (
-      let v1 = eval_expr env e1 in
-      let v2 = eval_expr env e2 in
-      match (op, v1, v2) with
-      | (Add, VInt x, VInt y) -> VInt (x + y)
-      | (Sub, VInt x, VInt y) -> VInt (x - y)
-      | (Mul, VInt x, VInt y) -> VInt (x * y)
-      | (Div, VInt x, VInt y) when y <> 0 -> VInt (x / y)
-      | (Mod, VInt x, VInt y) when y <> 0 -> VInt (x mod y)
-      | (And, VBool b1, VBool b2) -> VBool (b1 && b2)
-      | (Or, VBool b1, VBool b2) -> VBool (b1 || b2)
-      | _ -> failwith "Unsupported binary operation or mismatched types"
-    )
-  | If (cond, then_branch, else_branch) -> (
-      match eval_expr env cond with
-      | VBool true -> eval_expr env then_branch
-      | VBool false -> eval_expr env else_branch
-      | _ -> failwith "Non-boolean condition in if-expression"
-    )
-  | Let { is_rec = false; name; value; body } ->
-      let value_val = eval_expr env value in
-      eval_expr (Env.add name value_val env) body
-  | Let { is_rec = true; name; value; body } -> (
-      match value with
-      | Fun (arg, _, body_fun) ->
-          let rec_env = Env.add name (VClos { name = Some name; arg; body = body_fun; env }) env in
-          eval_expr rec_env body
-      | _ -> raise RecWithoutArg
-    )
-  | OptMatch { matched; some_name; some_case; none_case } -> (
-      match eval_expr env matched with
-      | VSome v -> eval_expr (Env.add some_name v env) some_case
-      | VNone -> eval_expr env none_case
-      | _ -> failwith "Expected an option"
-    )
+  | Bop (Lte, e1, e2) -> (
+      match go e1, go e2 with
+      | VInt m, VInt n -> VBool (m <= n)                    
+      | VFloat m, VFloat n -> VBool (m <= n)                
+      | VBool m, VBool n -> VBool ((not n) || m)            
+      | VList lst1, VList lst2 -> VBool (lst1 <= lst2)      
+      | VSome v1, VSome v2 -> VBool (v1 <= v2)              
+      | VNone, VSome _ -> VBool true                        
+      | VNone, VNone -> VBool true                          
+      | _ -> failwith "Lte requires comparable types"
+  )
+  | Bop (Gt, e1, e2) -> (
+    match go e1, go e2 with
+    | VInt m, VInt n -> VBool (m > n)
+    | VFloat m, VFloat n -> VBool (m > n)
+    | VBool m, VBool n -> VBool (m && not n)  
+    | VPair (v1a, v1b), VPair (v2a, v2b) -> VBool ((v1a, v1b) > (v2a, v2b)) 
+    | VSome v1, VSome v2 -> VBool (v1 > v2)
+    | VNone, VSome _ -> VBool false
+    | VNone, VNone -> VBool false
+    | VList lst1, VList lst2 -> VBool (lst1 > lst2) 
+    | _ -> failwith "Gt requires comparable types"
+  )
+  | Bop (Gte, e1, e2) -> (
+    match go e1, go e2 with
+    | VInt m, VInt n -> VBool (m >= n)                    
+    | VFloat m, VFloat n -> VBool (m >= n)                
+    | VBool m, VBool n -> VBool (m || not n)            
+    | VList lst1, VList lst2 -> VBool (lst1 >= lst2)      
+    | VSome v1, VSome v2 -> VBool (v1 >= v2)              
+    | VSome _, VNone -> VBool true                        
+    | VNone, VNone -> VBool true
+    | VUnit, VUnit -> VBool true  
+    | _ -> failwith "Gte requires comparable types"
+)
+  | Bop (And, e1, e2) -> (
+      match go e1 with
+      | VBool false -> VBool false
+      | VBool true -> go e2
+      | _ -> failwith ("Logical 'and' requires boolean operands")
+      )
+  | Bop (Or, e1, e2) -> (
+        match go e1 with
+        | VBool true -> VBool true
+        | VBool false -> go e2
+        | _ -> failwith ("Logical 'or' requires boolean operands")
+  )
+  | ESome e ->
+    let v = eval_expr  env e in
+    VSome v
+  | OptMatch { matched; some_name; some_case; none_case } ->
+    (match eval_expr env matched with
+    | VSome v -> eval_expr (Env.add some_name v env) some_case
+    | VNone -> eval_expr env none_case
+    | _ -> failwith "Expected an option")
+  | If (e1, e2, e3) -> (
+        match go e1 with
+        | VBool true -> go e2
+        | VBool false -> go e3
+        | _ -> failwith ("Condition in if-expression must be a boolean")
+      )
+  | Bop (Comma, e1, e2) -> 
+      let v1 = go e1 in
+      let v2 = go e2 in
+      VPair (v1, v2)
+  | Bop (Cons, e1, e2) -> 
+      let v1 = go e1 in
+      let v2 = go e2 in
+      (match v2 with
+      | VList lst -> VList (v1 :: lst)
+      | _ -> failwith "Expected a list on the right-hand side of Cons")
   | ListMatch { matched; hd_name; tl_name; cons_case; nil_case } -> (
-      match eval_expr env matched with
+      match go matched with
       | VList (vh :: vt) ->
-          let env = Env.add hd_name vh (Env.add tl_name (VList vt) env) in
-          eval_expr env cons_case
-      | VList [] -> eval_expr env nil_case
+          let env = Env.add hd_name vh env in
+          let env = Env.add tl_name (VList vt) env in
+          eval_expr env cons_case 
+      | VList [] -> eval_expr env nil_case 
       | _ -> failwith "Expected a list"
-    )
+  )
   | PairMatch { matched; fst_name; snd_name; case } -> (
-      match eval_expr env matched with
+      match go matched with
       | VPair (v1, v2) ->
-          let env = Env.add fst_name v1 (Env.add snd_name v2 env) in
-          eval_expr env case
+          let env = Env.add fst_name v1 env in
+          let env = Env.add snd_name v2 env in
+          eval_expr env case 
       | _ -> failwith "Expected a pair"
-    )
-  | ESome e -> VSome (eval_expr env e)
-  | Annot (e, _) -> eval_expr env e
-  | Assert e -> (
-      match eval_expr env e with
-      | VBool true -> VUnit
-      | VBool false -> raise AssertFail
-      | _ -> failwith "Assertion expects a boolean"
-    )
-
-
-(* Type Checking *)
-let type_check prog =
-  let rec go env = function
-    | [] -> Some (Forall ([], TUnit))
-    | { is_rec; name; value } :: rest ->
-        (match type_of env (Let { is_rec; name; value; body = Var name }) with
-        | Some ty -> go (Env.add name ty env) rest
-        | None -> None)
+  ) 
+  | Bop (Concat, e1, e2) ->
+    let v1 = go e1 in
+    let v2 = go e2 in
+    (match (v1, v2) with
+    | (VList lst1, VList lst2) -> VList (lst1 @ lst2)
+    | _ -> failwith "Both operands of Concat must be lists")     
+  | Assert e1 ->
+      (match go e1 with
+      | (VBool true) -> VUnit
+      | (VBool false) -> raise AssertFail
+      | _ -> raise AssertFail)
+  | Let { is_rec = false; name; value; body } ->
+      let v1 = go value in
+      let new_env = Env.add name v1 env in
+      eval_expr new_env body 
+  | Let { is_rec = true; name = f; value = e1; body = e2 } ->
+        let closure = 
+          (match eval_expr env e1  with
+          | VClos { name = None; arg; body = closure_body; env = closure_env } ->
+              VClos { name = Some f; arg; body = closure_body; env = closure_env }
+          | VClos { name = Some _; _ } ->
+            raise RecWithoutArg
+          | _ -> failwith ("Expected a closure in recursive let binding"))
+        in
+        let updated_env = Env.add f closure env in
+        eval_expr updated_env  e2 
+  | Annot (e, _) ->
+      eval_expr env e 
   in
-  go Env.empty prog
+  go expr
 
-(* Program Evaluation *)
-let eval prog =
+let type_check =
+  let rec go ctxt = function
+  | [] -> Some (Forall ([], TUnit))
+  | {is_rec;name;value} :: ls ->
+    match type_of ctxt (Let {is_rec;name;value; body = Var name}) with
+    | Some ty -> (
+      match ls with
+      | [] -> Some ty
+      | _ ->
+        let ctxt = Env.add name ty ctxt in
+        go ctxt ls
+    )
+    | None -> None
+  in go Env.empty
+
+let eval p =
   let rec nest = function
     | [] -> Unit
-    | [{ is_rec; name; value }] -> Let { is_rec; name; value; body = Var name }
-    | { is_rec; name; value } :: rest -> Let { is_rec; name; value; body = nest rest }
-  in
-  eval_expr Env.empty (nest prog)
+    | [{is_rec;name;value}] -> Let {is_rec;name;value;body = Var name}
+    | {is_rec;name;value} :: ls -> Let {is_rec;name;value;body = nest ls}
+  in eval_expr Env.empty (nest p)
 
-(* Interpreter *)
 let interp input =
   match parse input with
-  | Some prog -> (match type_check prog with Some ty -> Ok (eval prog, ty) | None -> Error TypeError)
+  | Some prog -> (
+    match type_check prog with
+    | Some ty -> Ok (eval prog, ty)
+    | None -> Error TypeError
+  )
   | None -> Error ParseError
