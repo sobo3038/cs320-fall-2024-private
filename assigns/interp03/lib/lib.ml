@@ -75,137 +75,151 @@ let rec unify ty constraints =
     let rec free_vars typ =
       match typ with
       | TVar x -> [x]
-      | TFun(l,r)|TPair(l,r) -> free_vars l @ free_vars r
-      | TList t|TOption t -> free_vars t
+      | TFun(l,r) | TPair(l,r) -> free_vars l @ free_vars r
+      | TList t | TOption t -> free_vars t
       | _ -> []
     in
+  
     let rec apply_subst s t =
       match t with
-      | TVar x ->
-          (try List.assoc x s with Not_found -> t)
+      | TVar x -> (try List.assoc x s with Not_found -> t)
       | TFun(a,b) -> TFun(apply_subst s a, apply_subst s b)
       | TPair(a,b) -> TPair(apply_subst s a, apply_subst s b)
       | TList tt -> TList(apply_subst s tt)
       | TOption tt -> TOption(apply_subst s tt)
       | _ -> t
     in
-    let instantiate (vars,ty) =
+  
+    let instantiate (vars, ty) =
       let sub = List.map (fun v -> (v, TVar(gensym()))) vars in
       apply_subst sub ty
     in
+  
     let free_vars_in_env en =
-      List.fold_left (fun acc (_,Forall(_,typ)) -> free_vars typ @ acc) [] (Env.to_list en)
+      List.fold_left (fun acc (_, Forall(_,typ)) -> free_vars typ @ acc) [] (Env.to_list en)
     in
+  
     let rec infer en ex =
       match ex with
-      | Unit -> (TUnit,[])
-      | True|False -> (TBool,[])
-      | Int _ -> (TInt,[])
-      | Float _ -> (TFloat,[])
+      | Unit -> (TUnit, [])
+      | True | False -> (TBool, [])
+      | Int _ -> (TInt, [])
+      | Float _ -> (TFloat, [])
       | Var x ->
-        (match Env.find_opt x en with
-         | Some (Forall(vars,t)) -> (instantiate(vars,t),[])
-         | None -> failwith ("Unbound variable: "^x))
-      | ENone -> (TOption(TVar(gensym())),[])
+         (match Env.find_opt x en with
+          | Some (Forall(vars,t)) -> (instantiate (vars,t), [])
+          | None -> failwith ("Unbound variable: " ^ x))
+      | ENone -> (TOption (TVar (gensym())), [])
       | ESome ee ->
-        let t,c = infer en ee in (TOption t,c)
-      | Nil -> (TList(TVar(gensym())),[])
-      | OptMatch{matched;some_name;some_case;none_case} ->
-        let tm,cm = infer en matched in
-        let fe = TVar(gensym()) in
-        let en_s = Env.add some_name (Forall([],fe)) en in
-        let tsc,ccs = infer en_s some_case in
-        let tnc,ccn = infer en none_case in
-        (tsc,(tm,TOption fe)::(tsc,tnc)::cm@ccs@ccn)
+         let t,c = infer en ee in
+         (TOption t, c)
+      | Nil -> (TList (TVar (gensym())), [])
+      | OptMatch {matched; some_name; some_case; none_case} ->
+         let tm, cm = infer en matched in
+         let fe = TVar (gensym()) in
+         let en_s = Env.add some_name (Forall([],fe)) en in
+         let tsc, ccs = infer en_s some_case in
+         let tnc, ccn = infer en none_case in
+         (tsc, (tm, TOption fe) :: (tsc, tnc) :: cm @ ccs @ ccn)
       | Bop(op,e1,e2) ->
-        let t1,c1 = infer en e1 in
-        let t2,c2 = infer en e2 in
-        (match op with
-         | Add|Sub|Mul|Div|Mod ->
-            (TInt,(t1,TInt)::(t2,TInt)::c1@c2)
-         | AddF|SubF|MulF|DivF|PowF ->
-            (TFloat,(t1,TFloat)::(t2,TFloat)::c1@c2)
-         | And|Or ->
-            (TBool,(t1,TBool)::(t2,TBool)::c1@c2)
-         | Eq|Neq ->
-            let fr = TVar(gensym()) in
-            (TBool,(t1,fr)::(t2,fr)::c1@c2)
-         | Lt|Lte|Gt|Gte ->
-            let fr = TVar(gensym()) in
-            (TBool,(t1,fr)::(t2,fr)::c1@c2)
-         | Cons ->
+         let t1,c1 = infer en e1 in
+         let t2,c2 = infer en e2 in
+         (match op with
+          | Add | Sub | Mul | Div | Mod ->
+            (TInt, (t1,TInt) :: (t2,TInt) :: c1 @ c2)
+          | AddF | SubF | MulF | DivF | PowF ->
+            (TFloat, (t1,TFloat) :: (t2,TFloat) :: c1 @ c2)
+          | And | Or ->
+            (TBool, (t1,TBool) :: (t2,TBool) :: c1 @ c2)
+          | Eq | Neq ->
+            let fr = TVar (gensym()) in
+            (TBool, (t1,fr) :: (t2,fr) :: c1 @ c2)
+          | Lt | Lte | Gt | Gte ->
+            let fr = TVar (gensym()) in
+            (TBool, (t1,fr) :: (t2,fr) :: c1 @ c2)
+          | Cons ->
             let t1,c1 = infer en e1 in
             let t2,c2 = infer en e2 in
-            (TList t1,(t2,TList t1)::c1@c2)
-         | Concat ->
+            (TList t1, (t2, TList t1) :: c1 @ c2)
+          | Concat ->
             let t1,c1 = infer en e1 in
             let t2,c2 = infer en e2 in
             let fr = TVar(gensym()) in
-            (TList fr,(t1,TList fr)::(t2,TList fr)::c1@c2)
-         | Comma ->
+            (TList fr, (t1,TList fr) :: (t2,TList fr) :: c1 @ c2)
+          | Comma ->
             let t1,c1 = infer en e1 in
             let t2,c2 = infer en e2 in
-            (TPair(t1,t2),c1@c2))
+            (TPair(t1,t2), c1 @ c2))
       | If(e1,e2,e3) ->
-        let t1,c1 = infer en e1 in
-        let t2,c2 = infer en e2 in
-        let t3,c3 = infer en e3 in
-        (t2,(t1,TBool)::(t2,t3)::c1@c2@c3)
-      | Fun(x,Some ty,b) ->
-        let en' = Env.add x (Forall([],ty)) en in
-        let tb,cb = infer en' b in
-        (TFun(ty,tb),cb)
-      | Fun(a,None,b) ->
-        let fa = TVar(gensym()) in
-        let en' = Env.add a (Forall([],fa)) en in
-        let tb,cb = infer en' b in
-        (TFun(fa,tb),cb)
+         let t1,c1 = infer en e1 in
+         let t2,c2 = infer en e2 in
+         let t3,c3 = infer en e3 in
+         (t2,(t1,TBool)::(t2,t3)::c1@c2@c3)
+      | Fun(x, Some ty, b) ->
+         let en' = Env.add x (Forall([],ty)) en in
+         let tb, cb = infer en' b in
+         (TFun(ty,tb), cb)
+      | Fun(a, None, b) ->
+         let fa = TVar (gensym()) in
+         let en' = Env.add a (Forall([],fa)) en in
+         let tb, cb = infer en' b in
+         (TFun(fa,tb), cb)
       | App(e1,e2) ->
-        let tf,cf = infer en e1 in
-        let ta,ca = infer en e2 in
-        let fr = TVar(gensym()) in
-        (fr,(tf,TFun(ta,fr))::cf@ca)
-      | Let{is_rec=false;name;value;body} ->
-        let tv,cv = infer en value in
-        let en' = Env.add name (Forall([],tv)) en in
-        let tb,cb = infer en' body in
-        (tb,cv@cb)
-      | Let{is_rec=true;name;value;body} ->
-        let fr = TVar(gensym()) in
-        let en_f = Env.add name (Forall([],fr)) en in
-        let tv,cv = infer en_f value in
-        let efv = free_vars_in_env en in
-        let gt = Forall(List.filter (fun v->not(List.mem v efv)) (free_vars tv),tv) in
-        let en' = Env.add name gt en in
-        let tb,cb = infer en' body in
-        (tb,cv@cb)
+         let tf,cf = infer en e1 in
+         let ta,ca = infer en e2 in
+         let fr = TVar (gensym()) in
+         (fr,(tf, TFun(ta,fr)) :: cf @ ca)
+      | Let { is_rec=false; name; value; body } ->
+         let tv,cv = infer en value in
+         let en' = Env.add name (Forall([],tv)) en in
+         let tb,cb = infer en' body in
+         (tb, cv @ cb)
+      | Let { is_rec=true; name; value; body } ->
+         let fr = TVar(gensym()) in
+         let en_f = Env.add name (Forall([],fr)) en in
+         let tv,cv = infer en_f value in
+         let efv = free_vars_in_env en in
+         let all_fv = free_vars tv in
+         let scheme_fv = List.filter (fun v -> not (List.mem v efv)) all_fv in
+         let gt = Forall(scheme_fv, tv) in
+         let en' = Env.add name gt en in
+         let tb,cb = infer en' body in
+         (tb, cv @ cb)
       | Assert False ->
-        (TVar(gensym()),[])
+         (* assert false can have any type, just return a fresh type var and no constraints *)
+         (TVar(gensym()), [])
       | Assert ex ->
-        let t,c = infer en ex in
-        (TUnit,(t,TBool)::c)
+         let t,c = infer en ex in
+         (* assert e requires e: bool and returns unit *)
+         (TUnit,(t,TBool)::c)
       | Annot(ex,ty) ->
-        let t,c = infer en ex in (ty,(t,ty)::c)
-      | PairMatch{matched;fst_name;snd_name;case} ->
-        let tm,cm = infer en matched in
-        let f1 = TVar(gensym()) in
-        let f2 = TVar(gensym()) in
-        let en_ex = Env.add fst_name (Forall([],f1)) (Env.add snd_name (Forall([],f2)) en) in
-        let tc,cc = infer en_ex case in
-        (tc,(tm,TPair(f1,f2))::cm@cc)
-      | ListMatch{matched;hd_name;tl_name;cons_case;nil_case} ->
-        let tm,cm = infer en matched in
-        let fe = TVar(gensym()) in
-        let en_h = Env.add hd_name (Forall([],fe)) en in
-        let en_t = Env.add tl_name (Forall([],TList fe)) en_h in
-        let tc,ccons = infer en_t cons_case in
-        let tn,cnil = infer en nil_case in
-        (tn,(tm,TList fe)::(tc,tn)::cm@ccons@cnil)
+         let t,c = infer en ex in (ty,(t,ty)::c)
+      | PairMatch {matched; fst_name; snd_name; case} ->
+         let tm,cm = infer en matched in
+         let f1 = TVar(gensym()) in
+         let f2 = TVar(gensym()) in
+         let en_ex = Env.add fst_name (Forall([],f1)) (Env.add snd_name (Forall([],f2)) en) in
+         let tc,cc = infer en_ex case in
+         (tc,(tm,TPair(f1,f2))::cm@cc)
+      | ListMatch {matched; hd_name; tl_name; cons_case; nil_case} ->
+         let tm,cm = infer en matched in
+         let fe = TVar(gensym()) in
+         let en_h = Env.add hd_name (Forall([],fe)) en in
+         let en_t = Env.add tl_name (Forall([],TList fe)) en_h in
+         let tc,ccons = infer en_t cons_case in
+         let tn,cnil = infer en nil_case in
+         (tn,(tm,TList fe)::(tc,tn)::cm@ccons@cnil)
     in
+  
     try
       let (ty,cs) = infer env e in
       match unify ty cs with
-      | Some scheme -> Some scheme
+      | Some (Forall(_, unified_ty)) ->
+         (* After unification, re-quantify over free vars not in env *)
+         let all_fv = free_vars unified_ty in
+         let env_fv = free_vars_in_env env in
+         let quant_vars = List.filter (fun v -> not (List.mem v env_fv)) all_fv in
+         Some (Forall(quant_vars, unified_ty))
       | None -> None
     with _ -> None
   
