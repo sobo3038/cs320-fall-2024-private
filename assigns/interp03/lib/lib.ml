@@ -8,62 +8,79 @@ exception RecWithoutArg
 exception CompareFunVals
 
 let rec unify ty constraints =
-  let rec free_vars ty =
-    match ty with
-    | TVar x -> [x]
-    | TFun (t1, t2) | TPair (t1, t2) -> free_vars t1 @ free_vars t2
-    | TList t | TOption t -> free_vars t
-    | _ -> []
+  let collect_and_sort_free_vars =
+    let rec collect ty =
+      match ty with
+      | TVar x -> [x]
+      | TFun (t1, t2)
+      | TPair (t1, t2) ->
+          collect t1 @ collect t2
+      | TList t
+      | TOption t ->
+          collect t
+      | _ -> []
+    in
+    fun ty ->
+      let sorted = List.sort compare (collect ty) in
+      let rec dedup acc = function
+        | [] -> List.rev acc
+        | [x] -> List.rev (x :: acc)
+        | x :: y :: xs ->
+            if compare x y = 0 then dedup acc (y :: xs)
+            else dedup (x :: acc) (y :: xs)
+      in
+      dedup [] sorted
   in
-  let rec occurs x ty =
+  let rec variable_occurs var ty =
     match ty with
-    | TVar y -> x = y
-    | TFun (t1, t2) | TPair (t1, t2) -> occurs x t1 || occurs x t2
-    | TList t | TOption t -> occurs x t
+    | TVar y -> var = y
+    | TFun (t1, t2)
+    | TPair (t1, t2) ->
+        variable_occurs var t1 || variable_occurs var t2
+    | TList t
+    | TOption t ->
+        variable_occurs var t
     | _ -> false
   in
-  let rec apply_subst subst ty =
+  let rec substitute_types subst ty =
     match ty with
-    | TVar x -> (try List.assoc x subst with Not_found -> ty)
-    | TFun (t1, t2) -> TFun (apply_subst subst t1, apply_subst subst t2)
-    | TPair (t1, t2) -> TPair (apply_subst subst t1, apply_subst subst t2)
-    | TList t -> TList (apply_subst subst t)
-    | TOption t -> TOption (apply_subst subst t)
-    | _ -> ty
+    | TVar x ->
+        (try List.assoc x subst with Not_found -> ty)
+    | TFun (t1, t2) ->
+        TFun (substitute_types subst t1, substitute_types subst t2)
+    | TPair (t1, t2) ->
+        TPair (substitute_types subst t1, substitute_types subst t2)
+    | TList t ->
+        TList (substitute_types subst t)
+    | TOption t ->
+        TOption (substitute_types subst t)
+    | other -> other
   in
-  let apply_subst_to_constraints subst constraints =
-    List.map (fun (t1, t2) -> (apply_subst subst t1, apply_subst subst t2)) constraints
-  in
-  let sort_uniq cmp lst =
-    let sorted = List.sort cmp lst in
-    let rec dedup acc = function
-      | [] -> List.rev acc
-      | [x] -> List.rev (x :: acc)
-      | x :: (y :: _ as rest) -> if cmp x y = 0 then dedup acc rest else dedup (x :: acc) rest
-    in
-    dedup [] sorted
+  let substitute_in_constraints subst cons =
+    List.map (fun (a, b) -> (substitute_types subst a, substitute_types subst b)) cons
   in
   match constraints with
   | [] ->
-    let fv = sort_uniq compare (free_vars ty) in
-    Some (Forall (fv, ty))
-  | (t1, t2) :: rest when t1 = t2 ->
-    unify ty rest
-  | (TVar x, t) :: rest | (t, TVar x) :: rest ->
-    if occurs x t then None
-    else
-      let subst = [(x, t)] in
-      let updated_ty = apply_subst subst ty in
-      let updated_constraints = apply_subst_to_constraints subst rest in
-      unify updated_ty updated_constraints
-  | (TFun (t1a, t1b), TFun (t2a, t2b)) :: rest ->
-    unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
-  | (TPair (t1a, t1b), TPair (t2a, t2b)) :: rest ->
-    unify ty ((t1a, t2a) :: (t1b, t2b) :: rest)
-  | (TList t1, TList t2) :: rest | (TOption t1, TOption t2) :: rest ->
-    unify ty ((t1, t2) :: rest)
+      let fv = collect_and_sort_free_vars ty in
+      Some (Forall (fv, ty))
+  | (t1, t2) :: rest_constraints when t1 = t2 ->
+      unify ty rest_constraints
+  | (TVar x, t) :: rest
+  | (t, TVar x) :: rest ->
+      if variable_occurs x t then None
+      else
+        let subst = [(x, t)] in
+        let new_ty = substitute_types subst ty in
+        let new_constraints = substitute_in_constraints subst rest in
+        unify new_ty new_constraints
+  | (TFun (ta1, ta2), TFun (tb1, tb2)) :: rest ->
+      unify ty ((ta1, tb1) :: (ta2, tb2) :: rest)
+  | (TPair (pa1, pa2), TPair (pb1, pb2)) :: rest ->
+      unify ty ((pa1, pb1) :: (pa2, pb2) :: rest)
+  | (TList ta, TList tb) :: rest
+  | (TOption ta, TOption tb) :: rest ->
+      unify ty ((ta, tb) :: rest)
   | _ -> None
-
 
 
 
@@ -387,20 +404,25 @@ let rec eval_expr env expr : value =
   in go expr
 
 
-  let type_check =
-    let rec go ctxt = function
+
+
+
+
+
+
+
+
+
+
+let type_check prog =
+  let rec go env = function
     | [] -> Some (Forall ([], TUnit))
-    | {is_rec;name;value} :: ls ->
-      match type_of ctxt (Let {is_rec;name;value; body = Var name}) with
-      | Some ty -> (
-        match ls with
-        | [] -> Some ty
-        | _ ->
-          let ctxt = Env.add name ty ctxt in
-          go ctxt ls
-      )
+    | { is_rec; name; value } :: rest ->
+      match type_of env (Let { is_rec; name; value; body = Var name }) with
+      | Some ty -> go (Env.add name ty env) rest
       | None -> None
-    in go Env.empty
+  in
+  go Env.empty prog
 
   let eval p =
     let rec nest = function
