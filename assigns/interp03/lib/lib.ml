@@ -72,150 +72,154 @@ let rec unify ty constraints =
 
 
 
-
+  let type_of (env : stc_env) (e : expr) : ty_scheme option =
+    let type_of_inner env e =
+      let rec apply_subst subst ty =
+        match ty with
+        | TVar x -> (try List.assoc x subst with Not_found -> ty)
+        | TFun (t1, t2) -> TFun (apply_subst subst t1, apply_subst subst t2)
+        | TPair (t1, t2) -> TPair (apply_subst subst t1, apply_subst subst t2)
+        | TList t -> TList (apply_subst subst t)
+        | TOption t -> TOption (apply_subst subst t)
+        | _ -> ty
+      in
+      let instantiate (vars, ty) =
+        let subst = List.map (fun var -> (var, TVar (gensym ()))) vars in
+        apply_subst subst ty
+      in  
+      let rec infer env = function
+        | Unit -> (TUnit, [])
+        | True | False -> (TBool, [])
+        | Int _ -> (TInt, [])
+        | Float _ -> (TFloat, [])
+        | Var x -> (
+            match Env.find_opt x env with
+            | Some (Forall (vars, t)) -> (instantiate (vars, t), [])
+            | None -> failwith ("Unbound variable: " ^ x)
+          )
+        | ENone -> (TOption (TVar (gensym ())), [])
+        | ESome e ->
+          let t, c = infer env e in
+          (TOption t, c)
+        | Nil -> (TList (TVar (gensym ())), [])
+        | OptMatch { matched; some_name; some_case; none_case } ->
+          let t_matched, c_matched = infer env matched in
+          let fresh_elem = TVar (gensym ()) in
+          let env_with_some = Env.add some_name (Forall ([], fresh_elem)) env in
+          let t_some_case, c_some = infer env_with_some some_case in
+          let t_none_case, c_none = infer env none_case in
+          let constraints =
+            (t_matched, TOption fresh_elem) ::
+            (t_some_case, t_none_case) :: 
+            c_matched @ c_some @ c_none
+          in
+          (t_some_case, constraints)
+        | Bop (op, e1, e2) -> (
+            let t1, c1 = infer env e1 in
+            let t2, c2 = infer env e2 in
+            match op with
+            | Add | Sub | Mul | Div | Mod ->
+                (TInt, (t1, TInt) :: (t2, TInt) :: c1 @ c2)
+            | AddF | SubF | MulF | DivF | PowF ->
+                (TFloat, (t1, TFloat) :: (t2, TFloat) :: c1 @ c2)
+            | And | Or ->
+                (TBool, (t1, TBool) :: (t2, TBool) :: c1 @ c2)
+            | Eq | Neq ->
+              let fresh = TVar (gensym ()) in
+              (TBool, (t1, fresh) :: (t2, fresh) :: c1 @ c2)
+            | Lt | Lte | Gt | Gte ->
+              (TBool, (t1, t2) :: c1 @ c2) 
+            | Cons ->
+              let t1, c1 = infer env e1 in
+              let t2, c2 = infer env e2 in
+              (TList t1, (t2, TList t1) :: c1 @ c2)
+            | Concat ->
+              let t1, c1 = infer env e1 in
+              let t2, c2 = infer env e2 in
+              let fresh = TVar (gensym ()) in
+              (TList fresh, (t1, TList fresh) :: (t2, TList fresh) :: c1 @ c2)
+            | Comma ->
+              let t1, c1 = infer env e1 in
+              let t2, c2 = infer env e2 in
+              (TPair (t1, t2), c1 @ c2)
+          )
+        | If (e1, e2, e3) ->
+            let t1, c1 = infer env e1 in
+            let t2, c2 = infer env e2 in
+            let t3, c3 = infer env e3 in
+            (t3, (t1, TBool) :: (t2, t3) :: c1 @ c2 @ c3)
+        | Fun (x, Some ty, body) ->
+            let env = Env.add x (Forall ([], ty)) env in
+            let t_body, c_body = infer env body in
+            (TFun (ty, t_body), c_body)
+        | Fun (arg, None, body) ->
+          let fresh_arg = TVar (gensym ()) in
+          let env = Env.add arg (Forall ([], fresh_arg)) env in
+          let t_body, c_body = infer env body in
+          (TFun (fresh_arg, t_body), c_body)   
+        | App (e1, e2) ->
+          let t_fun, c_fun = infer env e1 in
+          let t_arg, c_arg = infer env e2 in
+          let fresh = TVar (gensym ()) in
+          let constraints = (t_fun, TFun (t_arg, fresh)) :: c_fun @ c_arg in
+          (fresh, constraints)
+        | Let { is_rec = false; name; value; body } ->
+          let t_val, c_val = infer env value in
+          let env = Env.add name (Forall ([], t_val)) env in
+          let t_body, c_body = infer env body in
+          (t_body, c_val @ c_body)
+        | Let { is_rec = true; name; value; body;} ->
+          let fresh1 = TVar (gensym ()) in  
+          let fresh2 = TVar (gensym ()) in  
+          let env_with_f = Env.add name (Forall ([], TFun (fresh1, fresh2))) env in  
+          let _, c_val = infer env_with_f value in
+          let env_with_f_for_body = Env.add name (Forall ([], TFun (fresh1, fresh2))) env in
+          let t_body, c_body = infer env_with_f_for_body body in
+          let c = c_val @ c_body in
+          (t_body, c)
+        | Assert False -> (TVar (gensym ()), [])
+        | Assert e ->
+          let t, c = infer env e in
+          (TUnit, (t, TBool) :: c)  
+        | Annot (e, ty) ->
+            let t, c = infer env e in
+            (ty, (t, ty) :: c)
+        | PairMatch { matched; fst_name; snd_name; case } ->
+          let t_matched, c_matched = infer env matched in
+          let fresh1 = TVar (gensym ()) in
+          let fresh2 = TVar (gensym ()) in
+          let extended_env = Env.add fst_name (Forall ([], fresh1)) (Env.add snd_name (Forall ([], fresh2)) env) in
+          let t_case, c_case = infer extended_env case in
+          (t_case, (t_matched, TPair (fresh1, fresh2)) :: c_matched @ c_case)
+        | ListMatch { matched; hd_name; tl_name; cons_case; nil_case } ->
+          let t_matched, c_matched = infer env matched in
+          let fresh_elem = TVar (gensym ()) in
+          let env_hd = Env.add hd_name (Forall ([], fresh_elem)) env in
+          let env_tl = Env.add tl_name (Forall ([], TList fresh_elem)) env_hd in
+          let t_cons_case, c_cons_case = infer env_tl cons_case in
+          let t_nil_case, c_nil_case = infer env nil_case in
+          let constraints =
+            (t_matched, TList fresh_elem)
+            :: (t_cons_case, t_nil_case)
+            :: c_matched @ c_cons_case @ c_nil_case
+          in
+          (t_nil_case, constraints)
+          
+      in
+  
+      try
+        let t, c = infer env e in
+        let t = unify t c in
+        match t with
+        | Some t -> Some t 
+        | None -> None
+      with _ -> None
+    in
+    type_of_inner env e
+  
   
 
-  let rec apply_subst subst ty =
-    match ty with
-    | TVar x -> (try List.assoc x subst with Not_found -> ty)
-    | TFun (t1, t2) -> TFun (apply_subst subst t1, apply_subst subst t2)
-    | TPair (t1, t2) -> TPair (apply_subst subst t1, apply_subst subst t2)
-    | TList t -> TList (apply_subst subst t)
-    | TOption t -> TOption (apply_subst subst t)
-    | _ -> ty
-  let instantiate (vars, ty) =
-    let subst = List.map (fun var -> (var, TVar (gensym ()))) vars in
-    apply_subst subst ty
-
-  let type_of (env : stc_env) (e : expr) : ty_scheme option =
-    let rec infer env = function
-      | Unit -> (TUnit, [])
-      | True | False -> (TBool, [])
-      | Int _ -> (TInt, [])
-      | Float _ -> (TFloat, [])
-      | Var x -> (
-          match Env.find_opt x env with
-          | Some (Forall (vars, t)) -> (instantiate (vars, t), [])
-          | None -> failwith ("Unbound variable: " ^ x)
-        )
-      | ENone -> (TOption (TVar (gensym ())), [])
-      | ESome e ->
-        let t, c = infer env e in
-        (TOption t, c)
-      | Nil -> (TList (TVar (gensym ())), [])
-      | OptMatch { matched; some_name; some_case; none_case } ->
-        let t_matched, c_matched = infer env matched in
-        let fresh_elem = TVar (gensym ()) in
-        let env_with_some = Env.add some_name (Forall ([], fresh_elem)) env in
-        let t_some_case, c_some = infer env_with_some some_case in
-        let t_none_case, c_none = infer env none_case in
-        let constraints =
-          (t_matched, TOption fresh_elem) ::
-          (t_some_case, t_none_case) :: 
-          c_matched @ c_some @ c_none
-        in
-        (t_some_case, constraints)
-      | Bop (op, e1, e2) -> (
-          let t1, c1 = infer env e1 in
-          let t2, c2 = infer env e2 in
-          match op with
-          | Add | Sub | Mul | Div | Mod ->
-              (TInt, (t1, TInt) :: (t2, TInt) :: c1 @ c2)
-          | AddF | SubF | MulF | DivF | PowF ->
-              (TFloat, (t1, TFloat) :: (t2, TFloat) :: c1 @ c2)
-          | And | Or ->
-              (TBool, (t1, TBool) :: (t2, TBool) :: c1 @ c2)
-          | Eq | Neq ->
-            let fresh = TVar (gensym ()) in
-            (TBool, (t1, fresh) :: (t2, fresh) :: c1 @ c2)
-          | Lt | Lte | Gt | Gte ->
-            (TBool, (t1, t2) :: c1 @ c2) 
-          | Cons ->
-            let t1, c1 = infer env e1 in
-            let t2, c2 = infer env e2 in
-            (TList t1, (t2, TList t1) :: c1 @ c2)
-          | Concat ->
-            let t1, c1 = infer env e1 in
-            let t2, c2 = infer env e2 in
-            let fresh = TVar (gensym ()) in
-            (TList fresh, (t1, TList fresh) :: (t2, TList fresh) :: c1 @ c2)
-          | Comma ->
-            let t1, c1 = infer env e1 in
-            let t2, c2 = infer env e2 in
-            (TPair (t1, t2), c1 @ c2)
-        )
-      | If (e1, e2, e3) ->
-          let t1, c1 = infer env e1 in
-          let t2, c2 = infer env e2 in
-          let t3, c3 = infer env e3 in
-          (t3, (t1, TBool) :: (t2, t3) :: c1 @ c2 @ c3)
-      | Fun (x, Some ty, body) ->
-          let env = Env.add x (Forall ([], ty)) env in
-          let t_body, c_body = infer env body in
-          (TFun (ty, t_body), c_body)
-      | Fun (arg, None, body) ->
-        let fresh_arg = TVar (gensym ()) in
-        let env = Env.add arg (Forall ([], fresh_arg)) env in
-        let t_body, c_body = infer env body in
-        (TFun (fresh_arg, t_body), c_body)   
-      | App (e1, e2) ->
-        let t_fun, c_fun = infer env e1 in
-        let t_arg, c_arg = infer env e2 in
-        let fresh = TVar (gensym ()) in
-        let constraints = (t_fun, TFun (t_arg, fresh)) :: c_fun @ c_arg in
-        (fresh, constraints)
-      | Let { is_rec = false; name; value; body } ->
-        let t_val, c_val = infer env value in
-        let env = Env.add name (Forall ([], t_val)) env in
-        let t_body, c_body = infer env body in
-        (t_body, c_val @ c_body)
-      | Let { is_rec = true; name; value; body;} ->
-        let fresh1 = TVar (gensym ()) in  
-        let fresh2 = TVar (gensym ()) in  
-        let env_with_f = Env.add name (Forall ([], TFun (fresh1, fresh2))) env in  
-        let _, c_val = infer env_with_f value in
-        let env_with_f_for_body = Env.add name (Forall ([], TFun (fresh1, fresh2))) env in
-        let t_body, c_body = infer env_with_f_for_body body in
-        let c = c_val @ c_body in
-        (t_body, c)
-      | Assert False -> (TVar (gensym ()), [])
-      | Assert e ->
-        let t, c = infer env e in
-        (TUnit, (t, TBool) :: c)  
-      | Annot (e, ty) ->
-          let t, c = infer env e in
-          (ty, (t, ty) :: c)
-      | PairMatch { matched; fst_name; snd_name; case } ->
-        let t_matched, c_matched = infer env matched in
-        let fresh1 = TVar (gensym ()) in
-        let fresh2 = TVar (gensym ()) in
-        let extended_env = Env.add fst_name (Forall ([], fresh1)) (Env.add snd_name (Forall ([], fresh2)) env) in
-        let t_case, c_case = infer extended_env case in
-        (t_case, (t_matched, TPair (fresh1, fresh2)) :: c_matched @ c_case)
-      | ListMatch { matched; hd_name; tl_name; cons_case; nil_case } ->
-        let t_matched, c_matched = infer env matched in
-        let fresh_elem = TVar (gensym ()) in
-        let env_hd = Env.add hd_name (Forall ([], fresh_elem)) env in
-        let env_tl = Env.add tl_name (Forall ([], TList fresh_elem)) env_hd in
-        let t_cons_case, c_cons_case = infer env_tl cons_case in
-        let t_nil_case, c_nil_case = infer env nil_case in
-        let constraints =
-          (t_matched, TList fresh_elem)
-          :: (t_cons_case, t_nil_case)
-          :: c_matched @ c_cons_case @ c_nil_case
-        in
-        (t_nil_case, constraints)
-        
-    in
-    try
-      let t, c = infer env e in
-      let t = unify t c in
-      match t with
-      | Some t -> Some t 
-      | None -> None
-    with _ -> None
-
-
+  
 
 
 
@@ -383,23 +387,27 @@ let rec eval_expr env expr : value =
   in go expr
 
 
-let type_check prog =
-  let rec go env = function
+  let type_check =
+    let rec go ctxt = function
     | [] -> Some (Forall ([], TUnit))
-    | { is_rec; name; value } :: rest ->
-      match type_of env (Let { is_rec; name; value; body = Var name }) with
-      | Some ty -> go (Env.add name ty env) rest
+    | {is_rec;name;value} :: ls ->
+      match type_of ctxt (Let {is_rec;name;value; body = Var name}) with
+      | Some ty -> (
+        match ls with
+        | [] -> Some ty
+        | _ ->
+          let ctxt = Env.add name ty ctxt in
+          go ctxt ls
+      )
       | None -> None
-  in
-  go Env.empty prog
+    in go Env.empty
 
-let eval prog =
-  let rec nest = function
-    | [] -> Unit
-    | [{ is_rec; name; value }] -> Let { is_rec; name; value; body = Var name }
-    | { is_rec; name; value } :: rest -> Let { is_rec; name; value; body = nest rest }
-  in
-  eval_expr Env.empty (nest prog)
+  let eval p =
+    let rec nest = function
+      | [] -> Unit
+      | [{is_rec;name;value}] -> Let {is_rec;name;value;body = Var name}
+      | {is_rec;name;value} :: ls -> Let {is_rec;name;value;body = nest ls}
+    in eval_expr Env.empty (nest p)
 
 let interp input =
   match parse input with
